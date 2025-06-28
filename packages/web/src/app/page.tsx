@@ -1,7 +1,7 @@
 'use client';
 
 import { useUser, useAuth, SignInButton, UserButton } from '@clerk/nextjs';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
 interface Application {
   name: string;
@@ -29,8 +29,9 @@ export default function Home() {
   const [userApps, setUserApps] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // const [debugInfo, setDebugInfo] = useState<string>('');
 
-  const fetchUserApps = async () => {
+  const fetchUserApps = useCallback(async () => {
     if (!isSignedIn) return;
     
     setLoading(true);
@@ -57,13 +58,76 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isSignedIn, getToken]);
 
   useEffect(() => {
     if (isSignedIn) {
       fetchUserApps();
     }
-  }, [isSignedIn]);
+  }, [isSignedIn, fetchUserApps]);
+
+  // Debug effect to track Clerk state (temporarily disabled)
+  // useEffect(() => {
+  //   const timer = setTimeout(() => {
+  //     setDebugInfo(`isLoaded: ${isLoaded}, isSignedIn: ${isSignedIn}, publishableKey: ${process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? 'present' : 'missing'}`);
+  //   }, 2000);
+  //   return () => clearTimeout(timer);
+  // }, [isLoaded, isSignedIn]);
+
+  // Temporary: Skip isLoaded check and show debug info
+  const showDebugPage = false; // Toggle this to debug
+
+  if (showDebugPage) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-lg">
+          <h1 className="text-2xl font-bold mb-4">Debug Page</h1>
+          <div className="p-4 bg-gray-100 rounded text-left mb-4">
+            <p><strong>isLoaded:</strong> {String(isLoaded)}</p>
+            <p><strong>isSignedIn:</strong> {String(isSignedIn)}</p>
+            <p><strong>publishableKey present:</strong> {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? 'Yes' : 'No'}</p>
+            <p><strong>publishableKey value:</strong> {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 'undefined'}</p>
+            <p><strong>publishableKey length:</strong> {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.length || 0}</p>
+            <p><strong>Key ends with:</strong> {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.slice(-5) || 'N/A'}</p>
+            <p><strong>User object:</strong> {user ? 'Present' : 'Null'}</p>
+            <p><strong>Clerk JS loaded:</strong> {typeof window !== 'undefined' && (window as unknown as { Clerk?: unknown }).Clerk ? 'Yes' : 'No'}</p>
+          </div>
+          
+          <div className="space-y-4">
+            <SignInButton mode="modal">
+              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+                Try Sign In (Modal)
+              </button>
+            </SignInButton>
+            
+            <SignInButton mode="redirect">
+              <button className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+                Try Sign In (Redirect)
+              </button>
+            </SignInButton>
+            
+            <button 
+              onClick={() => {
+                const clerk = (window as unknown as { Clerk?: { openSignIn?: () => void } }).Clerk;
+                if (typeof window !== 'undefined' && clerk?.openSignIn) {
+                  clerk.openSignIn();
+                } else {
+                  alert('Clerk not loaded yet');
+                }
+              }}
+              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+            >
+              Direct Clerk.openSignIn()
+            </button>
+          </div>
+          
+          <p className="mt-4 text-sm text-gray-600">
+            This bypasses the isLoaded check to test if Clerk buttons work
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Show loading spinner while Clerk is initializing
   if (!isLoaded) {
@@ -71,7 +135,7 @@ export default function Home() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600">Loading Clerk...</p>
         </div>
       </div>
     );
@@ -94,13 +158,6 @@ export default function Home() {
                   Sign In with Email, Google, or Apple
                 </button>
               </SignInButton>
-              <div className="mt-4">
-                <SignInButton mode="redirect" redirectUrl="/dashboard">
-                  <button className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors border">
-                    Or Sign In (Full Page)
-                  </button>
-                </SignInButton>
-              </div>
               <p className="text-xs text-gray-500 text-center">
                 Secure authentication powered by Clerk
               </p>

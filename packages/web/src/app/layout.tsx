@@ -18,21 +18,22 @@ export const metadata: Metadata = {
   description: "Access your community applications",
 };
 
+// Ensure the publishable key is available and clean it
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
+
+if (!clerkPublishableKey) {
+  throw new Error("Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY");
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // console.log('Clerk publishable key:', clerkPublishableKey);
+  
   return (
-    <ClerkProvider
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-      appearance={{
-        elements: {
-          formButtonPrimary: 'bg-blue-600 hover:bg-blue-700',
-          socialButtonsBlockButton: 'border-gray-200 hover:bg-gray-50',
-        }
-      }}
-    >
+    <ClerkProvider publishableKey={clerkPublishableKey}>
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
