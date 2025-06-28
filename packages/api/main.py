@@ -12,8 +12,8 @@ from utils.config import settings
 load_dotenv()
 
 app = FastAPI(
-    title="Community Auth Service",
-    description="Centralized authentication service for community apps",
+    title="MVAuth2 Service",
+    description="Centralized authentication service for multiple applications, starting with ARC project",
     version="1.0.0"
 )
 
@@ -40,7 +40,7 @@ async def startup_event():
 
 @app.get("/api")
 async def api_status():
-    return {"service": "Community Auth Service", "version": "1.0.0", "status": "running"}
+    return {"service": "MVAuth2 Service", "version": "1.0.0", "status": "running"}
 
 @app.get("/health")
 async def health_check():
