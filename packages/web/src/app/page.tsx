@@ -1,6 +1,6 @@
 'use client';
 
-import { useUser, useAuth, SignInButton, UserButton } from '@clerk/nextjs';
+import { useUser, useAuth, SignIn, UserButton } from '@clerk/nextjs';
 import { useEffect, useState, useCallback } from 'react';
 
 interface Application {
@@ -8,6 +8,7 @@ interface Application {
   description: string;
   url: string;
   roles: string[];
+  admin?: boolean;
 }
 
 interface UserData {
@@ -39,10 +40,15 @@ export default function Home() {
     
     try {
       const token = await getToken();
+      console.log('User info:', { email: user?.emailAddresses?.[0]?.emailAddress, user });
+      console.log('Token preview:', token?.substring(0, 50) + '...');
+      
+      const userEmail = user?.emailAddresses?.[0]?.emailAddress;
       const response = await fetch(`${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/api/apps`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'X-User-Email': userEmail || '',
         },
       });
 
@@ -51,6 +57,7 @@ export default function Home() {
       }
 
       const data = await response.json();
+      console.log('API Response:', data);
       setUserApps(data);
     } catch (err) {
       console.error('Error fetching user apps:', err);
@@ -94,17 +101,26 @@ export default function Home() {
           </div>
           
           <div className="space-y-4">
-            <SignInButton mode="modal">
-              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-                Try Sign In (Modal)
-              </button>
-            </SignInButton>
+            <button 
+              onClick={() => {
+                const clerk = (window as unknown as { Clerk?: { openSignIn?: () => void } }).Clerk;
+                if (typeof window !== 'undefined' && clerk?.openSignIn) {
+                  clerk.openSignIn();
+                } else {
+                  alert('Clerk not loaded yet');
+                }
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+            >
+              Try Sign In (Modal)
+            </button>
             
-            <SignInButton mode="redirect">
-              <button className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-                Try Sign In (Redirect)
-              </button>
-            </SignInButton>
+            <button 
+              onClick={() => window.location.href = '/'}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+            >
+              Try Sign In (Redirect)
+            </button>
             
             <button 
               onClick={() => {
@@ -143,22 +159,50 @@ export default function Home() {
 
   if (!isSignedIn) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">
-              Community Portal
-            </h1>
-            <p className="text-gray-600 mb-6">
-              Sign in to access your community applications
-            </p>
-            <div className="space-y-4">
-              <SignInButton mode="modal">
-                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-                  Sign In with Email, Google, or Apple
-                </button>
-              </SignInButton>
-              <p className="text-xs text-gray-500 text-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+        {/* Background decoration */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-200/30 to-purple-200/30 rounded-full blur-3xl"></div>
+          <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-indigo-200/30 to-pink-200/30 rounded-full blur-3xl"></div>
+        </div>
+        
+        <div className="relative flex items-center justify-center min-h-screen p-4">
+          <div className="w-full max-w-md">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4 shadow-lg">
+                <span className="text-2xl">🌴</span>
+              </div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+                Mar Vista
+              </h1>
+              <p className="text-gray-600">
+                Access your applications with secure authentication
+              </p>
+            </div>
+            
+            {/* Clerk Sign In Component */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-8">
+              <SignIn
+                redirectUrl="/"
+                appearance={{
+                  elements: {
+                    rootBox: "w-full",
+                    card: "shadow-none border-0 bg-transparent",
+                    headerTitle: "text-xl font-semibold text-gray-800",
+                    headerSubtitle: "text-gray-600",
+                    socialButtonsBlockButton: "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 shadow-sm",
+                    formFieldInput: "border-gray-200 focus:border-blue-500 focus:ring-blue-500",
+                    formButtonPrimary: "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 shadow-lg",
+                    footerActionLink: "text-blue-600 hover:text-blue-700"
+                  }
+                }}
+              />
+            </div>
+            
+            {/* Footer */}
+            <div className="text-center mt-6">
+              <p className="text-sm text-gray-500">
                 Secure authentication powered by Clerk
               </p>
             </div>
@@ -169,14 +213,28 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm border-b">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-200/20 to-purple-200/20 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-indigo-200/20 to-pink-200/20 rounded-full blur-3xl"></div>
+      </div>
+      
+      <nav className="relative bg-white/80 backdrop-blur-sm shadow-sm border-b border-white/20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-semibold text-gray-900">
-                Community Portal
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-md">
+                <span className="text-sm">🌴</span>
+              </div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Mar Vista
               </h1>
+              {userApps?.user.role === 'SUPER_ADMIN' && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-sm">
+                  ⚡ Super Admin
+                </span>
+              )}
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-700">
@@ -188,7 +246,7 @@ export default function Home() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="relative max-w-7xl mx-auto py-8 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           {loading && (
             <div className="text-center">
@@ -227,33 +285,116 @@ export default function Home() {
 
           {userApps && (
             <div>
-              <div className="mb-6">
-                <h2 className="text-lg font-medium text-gray-900">
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
                   Your Applications
                 </h2>
-                <p className="mt-1 text-sm text-gray-600">
+                <p className="text-gray-600">
                   You have access to {userApps.total_access} application{userApps.total_access !== 1 ? 's' : ''}
-                  {userApps.user.role === 'SUPER_ADMIN' && ' as Super Administrator'}
+                  {userApps.user.role === 'SUPER_ADMIN' && ' with administrative privileges'}
                 </p>
+                <div className="mt-2 text-sm text-gray-500">
+                  User: {userApps.user.email} | Role: {userApps.user.role}
+                  <button 
+                    onClick={async () => {
+                      const token = await getToken();
+                      const response = await fetch(`${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/api/debug`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      const debug = await response.json();
+                      console.log('Debug info:', debug);
+                      alert(JSON.stringify(debug, null, 2));
+                    }}
+                    className="ml-4 text-blue-600 hover:text-blue-800 underline"
+                  >
+                    Debug Token
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {userApps.applications.map((app, index) => (
                   <div
                     key={index}
-                    className="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm hover:border-gray-400"
+                    className={`group relative rounded-2xl border px-6 py-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 ${
+                      app.admin 
+                        ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100' 
+                        : 'border-gray-200 bg-white/80 backdrop-blur-sm hover:bg-white'
+                    }`}
                   >
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-start space-x-4">
+                      <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center shadow-md ${
+                        app.admin 
+                          ? 'bg-gradient-to-br from-blue-500 to-purple-600 text-white' 
+                          : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-600'
+                      }`}>
+                        <span className="text-lg">
+                          {app.admin ? '🛡️' : '🏢'}
+                        </span>
+                      </div>
+                      
                       <div className="flex-1 min-w-0">
-                        <a href={app.url} className="focus:outline-none">
-                          <span className="absolute inset-0" aria-hidden="true" />
-                          <p className="text-sm font-medium text-gray-900">
-                            {app.name}
-                          </p>
-                          <p className="text-sm text-gray-500 truncate">
-                            {app.description}
-                          </p>
-                        </a>
+                        {app.admin && (
+                          <div className="mb-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-sm">
+                              ⚡ Admin Access
+                            </span>
+                          </div>
+                        )}
+                        
+                        {app.admin ? (
+                          <button 
+                            onClick={async () => {
+                              const token = await getToken();
+                              const userEmail = user?.emailAddresses?.[0]?.emailAddress;
+                              
+                              // Build admin URL with auth parameters
+                              const adminUrl = new URL(app.url);
+                              adminUrl.searchParams.set('token', token || '');
+                              adminUrl.searchParams.set('email', userEmail || '');
+                              
+                              // Open admin interface in new window
+                              window.open(adminUrl.toString(), '_blank');
+                            }}
+                            className="focus:outline-none w-full text-left"
+                          >
+                            <span className="absolute inset-0" aria-hidden="true" />
+                            <h3 className={`text-lg font-semibold mb-2 group-hover:text-blue-600 transition-colors ${
+                              app.admin ? 'text-blue-900' : 'text-gray-900'
+                            }`}>
+                              {app.name}
+                            </h3>
+                            <p className={`text-sm ${
+                              app.admin ? 'text-blue-600' : 'text-gray-600'
+                            }`}>
+                              {app.description}
+                            </p>
+                          </button>
+                        ) : (
+                          <a href={app.url} className="focus:outline-none">
+                            <span className="absolute inset-0" aria-hidden="true" />
+                            <h3 className={`text-lg font-semibold mb-2 group-hover:text-blue-600 transition-colors ${
+                              app.admin ? 'text-blue-900' : 'text-gray-900'
+                            }`}>
+                              {app.name}
+                            </h3>
+                            <p className={`text-sm ${
+                              app.admin ? 'text-blue-600' : 'text-gray-600'
+                            }`}>
+                              {app.description}
+                            </p>
+                          </a>
+                        )}
+                        
+                        <div className="mt-4 flex items-center justify-between">
+                          <div className="flex items-center text-xs text-gray-500">
+                            <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
+                            Active
+                          </div>
+                          <svg className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -14,8 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Community Portal",
-  description: "Access your community applications",
+  title: "Mar Vista",
+  description: "Access your Mar Vista applications",
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
 };
 
 // Ensure the publishable key is available and clean it
@@ -33,7 +38,22 @@ export default function RootLayout({
   // console.log('Clerk publishable key:', clerkPublishableKey);
   
   return (
-    <ClerkProvider publishableKey={clerkPublishableKey}>
+    <ClerkProvider 
+      publishableKey={clerkPublishableKey}
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/"
+      afterSignInUrl="/"
+      afterSignUpUrl="/"
+      appearance={{
+        baseTheme: undefined, // Use Clerk's default beautiful theme
+        elements: {
+          formButtonPrimary: 'bg-blue-600 hover:bg-blue-700 text-white',
+          card: 'shadow-lg',
+          headerTitle: 'text-2xl font-bold',
+          headerSubtitle: 'text-gray-600',
+        }
+      }}
+    >
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
