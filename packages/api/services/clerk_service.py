@@ -1,29 +1,30 @@
-from clerk_backend_api import Clerk
-from clerk_backend_api.models import operations
-from fastapi import HTTPException
+import os
 from typing import Dict, Optional
+from fastapi import HTTPException
+from clerk import Clerk
+from clerk.types.session import Session
+from clerk.types.user import User
+from clerk.types.email import EmailAddress
+from clerk.types.phone_number import PhoneNumber
 from utils.config import settings
 
 class ClerkService:
     def __init__(self):
         self.secret_key = settings.clerk_secret_key
-        self.client = Clerk(bearer_auth=self.secret_key)
+        self.publishable_key = settings.clerk_publishable_key
+        self.client = Clerk(api_key=self.secret_key, publishable_key=self.publishable_key)
 
     async def verify_clerk_token(self, token: str) -> Dict:
         """Verify Clerk JWT token and return user info"""
         try:
             # Verify the session token using Clerk's SDK
-            request = operations.VerifySessionRequest(
-                session_token=token
-            )
+            session = self.client.sessions.verify_session(token=token)
             
-            response = self.client.sessions.verify_session(request)
-            
-            if not response.session:
+            if not session:
                 raise HTTPException(status_code=401, detail="Invalid session token")
             
-            session = response.session
-            user = session.user
+            # Get user details
+            user = self.client.users.get_user(session.user_id)
             
             # Extract user information
             primary_email = None
