@@ -24,7 +24,7 @@ interface ApiResponse {
 }
 
 export default function Home() {
-  const { isSignedIn, user } = useUser();
+  const { isSignedIn, user, isLoaded } = useUser();
   const { getToken } = useAuth();
   const [userApps, setUserApps] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -65,6 +65,18 @@ export default function Home() {
     }
   }, [isSignedIn]);
 
+  // Show loading spinner while Clerk is initializing
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isSignedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -76,11 +88,23 @@ export default function Home() {
             <p className="text-gray-600 mb-6">
               Sign in to access your community applications
             </p>
-            <SignInButton mode="modal">
-              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-                Sign In
-              </button>
-            </SignInButton>
+            <div className="space-y-4">
+              <SignInButton mode="modal">
+                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+                  Sign In with Email, Google, or Apple
+                </button>
+              </SignInButton>
+              <div className="mt-4">
+                <SignInButton mode="redirect" redirectUrl="/dashboard">
+                  <button className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-4 rounded-md transition-colors border">
+                    Or Sign In (Full Page)
+                  </button>
+                </SignInButton>
+              </div>
+              <p className="text-xs text-gray-500 text-center">
+                Secure authentication powered by Clerk
+              </p>
+            </div>
           </div>
         </div>
       </div>
