@@ -117,7 +117,7 @@ async def get_apps(authorization: Optional[str] = Header(None), x_user_email: Op
         applications.append({
             "name": "User Management",
             "description": "Manage Mar Vista users and permissions",
-            "url": f"{os.getenv('NEXT_PUBLIC_COMMUNITY_AUTH_API', 'https://auth.brasilito.org')}/admin/users",
+            "url": "https://web.brasilito.org/admin",
             "roles": ["SUPER_ADMIN"],
             "admin": True
         })
