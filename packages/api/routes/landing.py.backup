@@ -1,0 +1,711 @@
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.security import HTTPBearer
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Dict, Optional
+
+from utils.database import get_db
+from services.jwt_service import JWTService
+from repositories.user_repository import UserRepository
+from models.user import UserRole
+
+router = APIRouter()
+security = HTTPBearer(auto_error=False)  # Allow access without token for login page
+
+# Application configuration
+APPLICATIONS = {
+    "arc": {
+        "name": "ARC Application System",
+        "description": "Architectural Review Committee applications and submissions",
+        "url": "https://mvarc.vercel.app",  # Your existing ARC app
+        "icon": "🏗️",
+        "required_permissions": ["access"]
+    },
+    "qr_gate": {
+        "name": "QR Gate Access",
+        "description": "Community gate access and management",
+        "url": "https://qr.brasilito.org",  # Future QR app
+        "icon": "🚪",
+        "required_permissions": ["access"]
+    }
+}
+
+async def get_current_user_optional(
+    request: Request, 
+    token: str = Depends(security), 
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current user from JWT token (optional - returns None if not authenticated)"""
+    # Check for token in Authorization header
+    if token:
+        try:
+            payload = JWTService.validate_token(token.credentials)
+            user_id = payload["user_id"]
+            
+            user_repo = UserRepository(db)
+            user = await user_repo.get_by_id(user_id)
+            return user
+        except:
+            pass
+    
+    # Check for token in query parameter (for testing)
+    query_token = request.query_params.get("token")
+    if query_token:
+        try:
+            payload = JWTService.validate_token(query_token)
+            user_id = payload["user_id"]
+            
+            user_repo = UserRepository(db)
+            user = await user_repo.get_by_id(user_id)
+            
+            # If user not found in database but token is valid, create mock user object
+            if not user and payload.get("clerk_user_id", "").startswith("test_"):
+                # This is a mock user for testing - create user object from token payload
+                class MockUser:
+                    def __init__(self, payload):
+                        self.id = payload["user_id"]
+                        self.email = payload["email"]
+                        self.full_name = payload["full_name"]
+                        self.role = UserRole(payload["role"])
+                        self.unit_number = payload.get("unit_number")
+                        self.phone_number = payload.get("phone_number")
+                        self.is_active = payload.get("is_active", True)
+                    
+                    def get_permissions_for_service(self, service_name: str):
+                        # Super admin has access to everything
+                        if self.role == UserRole.SUPER_ADMIN:
+                            return ["access", "admin", "manage_users", "view_logs", "super_admin"]
+                        
+                        # Service-specific permissions for other roles
+                        if service_name == "arc":
+                            if self.role == UserRole.ARC_ADMIN:
+                                return ["access", "admin", "manage_applications", "assign_reviewers", "view_all"]
+                            elif self.role == UserRole.ARC_REVIEWER:
+                                return ["access", "review", "comment", "approve", "deny"]
+                            elif self.role in [UserRole.HOMEOWNER, UserRole.RESIDENT]:
+                                return ["access", "submit", "view_own"]
+                        elif service_name == "qr_gate":
+                            if self.role == UserRole.QR_ADMIN:
+                                return ["access", "admin", "manage_gates", "view_logs", "manage_devices"]
+                            elif self.role in [UserRole.HOMEOWNER, UserRole.RESIDENT]:
+                                return ["access", "resident_access"]
+                        
+                        return ["access"]
+                
+                return MockUser(payload)
+            
+            return user
+        except Exception as e:
+            print(f"Token validation error: {e}")
+            pass
+    
+    return None
+
+def get_user_applications(user) -> List[Dict]:
+    """Get list of applications user has access to"""
+    if not user:
+        return []
+    
+    accessible_apps = []
+    
+    for app_id, app_config in APPLICATIONS.items():
+        # Check if user has required permissions for this app
+        permissions = user.get_permissions_for_service(app_id)
+        
+        # Check if user has any of the required permissions
+        has_access = any(perm in permissions for perm in app_config["required_permissions"])
+        
+        if has_access:
+            accessible_apps.append({
+                "id": app_id,
+                "name": app_config["name"],
+                "description": app_config["description"],
+                "url": app_config["url"],
+                "icon": app_config["icon"],
+                "permissions": permissions
+            })
+    
+    return accessible_apps
+
+@router.get("/", response_class=HTMLResponse)
+async def landing_page(
+    request: Request,
+    user = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """Community landing page - redirects or shows app launcher"""
+    
+    # If not authenticated, show login page
+    if not user:
+        return HTMLResponse(content=get_login_page_html(request))
+    
+    # Get applications user has access to
+    accessible_apps = get_user_applications(user)
+    
+    # If user has access to exactly one app, redirect immediately
+    if len(accessible_apps) == 1:
+        app = accessible_apps[0]
+        # Log the auto-redirect
+        user_repo = UserRepository(db)
+        await user_repo.log_user_action(
+            user_id=user.id,
+            service_name="community_landing",
+            action="auto_redirect",
+            resource=app["id"],
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            extra_data=f"Auto-redirected to {app['name']}"
+        )
+        return RedirectResponse(url=app["url"], status_code=302)
+    
+    # If user has no access, show contact admin message
+    if len(accessible_apps) == 0:
+        return HTMLResponse(content=get_no_access_page_html(user))
+    
+    # If user has multiple apps, show app launcher
+    return HTMLResponse(content=get_app_launcher_html(user, accessible_apps))
+
+@router.get("/apps")
+async def get_user_apps(
+    user = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """API endpoint to get user's accessible applications"""
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    accessible_apps = get_user_applications(user)
+    
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.value
+        },
+        "applications": accessible_apps,
+        "total_access": len(accessible_apps)
+    }
+
+@router.get("/debug-db")
+async def debug_database():
+    """Debug endpoint to check database configuration"""
+    import os
+    from utils.config import settings
+    from utils.database import database_url
+    
+    # Check environment variables
+    env_database_url = os.getenv("DATABASE_URL", "NOT_SET")
+    
+    return {
+        "env_DATABASE_URL": env_database_url[:50] + "..." if len(str(env_database_url)) > 50 else str(env_database_url),
+        "settings_database_url": settings.database_url[:50] + "..." if len(settings.database_url) > 50 else settings.database_url,
+        "computed_database_url": database_url[:50] + "..." if len(database_url) > 50 else database_url,
+        "is_sqlite": database_url.startswith("sqlite"),
+        "is_postgresql": database_url.startswith("postgresql"),
+        "env_vars_available": {
+            "DATABASE_URL": "DATABASE_URL" in os.environ,
+            "CLERK_SECRET_KEY": "CLERK_SECRET_KEY" in os.environ,
+            "CLERK_PUBLISHABLE_KEY": "CLERK_PUBLISHABLE_KEY" in os.environ,
+            "JWT_SECRET_KEY": "JWT_SECRET_KEY" in os.environ
+        },
+        "clerk_publishable_key": settings.clerk_publishable_key[:20] + "..." if settings.clerk_publishable_key else "NOT_SET"
+    }
+
+@router.get("/test-login")
+async def test_login(email: str = "jacob@reider.us"):
+    """Test endpoint to simulate login (REMOVE IN PRODUCTION)"""
+    try:
+        # Create a mock user for testing without database
+        role = UserRole.SUPER_ADMIN if email in ["jacob@brasilito.org", "jacob@reider.us"] else UserRole.HOMEOWNER
+        
+        mock_user = {
+            "id": 1,
+            "clerk_user_id": f"test_{email.replace('@', '_')}",
+            "email": email,
+            "full_name": f"Test User ({email})",
+            "unit_number": "101",
+            "phone_number": None,
+            "role": role.value,
+            "is_active": True,
+            "created_at": "2024-01-01T00:00:00",
+            "updated_at": "2024-01-01T00:00:00",
+            "last_login": None
+        }
+        
+        # Create token
+        access_token = JWTService.create_community_token(mock_user)
+        
+        # Redirect to landing page with token
+        return RedirectResponse(url=f"/?token={access_token}", status_code=302)
+        
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
+
+def get_login_page_html(request: Request) -> str:
+    """Generate login page HTML"""
+    from utils.config import settings
+    
+    # Get redirect URL from query params or default
+    redirect_url = request.query_params.get('redirect_url', '/')
+    
+    # Get Clerk publishable key
+    clerk_key = settings.clerk_publishable_key or "pk_test_PLACEHOLDER"
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Mar Vista Community - Sign In</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                margin: 0;
+                padding: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            .container {{
+                background: white;
+                padding: 2rem;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                text-align: center;
+                max-width: 400px;
+                width: 90%;
+            }}
+            .logo {{
+                font-size: 3rem;
+                margin-bottom: 1rem;
+            }}
+            h1 {{
+                color: #333;
+                margin-bottom: 0.5rem;
+            }}
+            .subtitle {{
+                color: #666;
+                margin-bottom: 2rem;
+            }}
+            .sso-button {{
+                display: inline-block;
+                padding: 12px 24px;
+                margin: 8px;
+                background: #4285f4;
+                color: white;
+                text-decoration: none;
+                border-radius: 6px;
+                font-weight: 500;
+                transition: background 0.2s;
+                width: 200px;
+            }}
+            .sso-button:hover {{
+                background: #3367d6;
+            }}
+            .google {{ background: #4285f4; }}
+            .apple {{ background: #000; }}
+            .info {{
+                margin-top: 2rem;
+                padding: 1rem;
+                background: #f8f9fa;
+                border-radius: 6px;
+                color: #666;
+                font-size: 0.9rem;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="logo">🏡</div>
+            <h1>Mar Vista Community</h1>
+            <p class="subtitle">Sign in to access community applications</p>
+            
+            <div style="margin: 2rem 0;">
+                <a href="#" class="sso-button google" onclick="signInWithSSO('google')">
+                    Sign in with Google
+                </a>
+                <br>
+                <a href="#" class="sso-button apple" onclick="signInWithSSO('apple')">
+                    Sign in with Apple
+                </a>
+            </div>
+            
+            <div class="info">
+                <strong>First time here?</strong><br>
+                Use your Google or Apple account to sign in. Your account will be created automatically.
+            </div>
+        </div>
+        
+        <!-- Clerk.js SDK -->
+        <script
+            async
+            crossorigin="anonymous"
+            data-clerk-publishable-key="{clerk_key}"
+            src="https://deciding-skylark-2.clerk.accounts.dev/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"
+            type="text/javascript"
+        ></script>
+        
+        <script>
+            window.addEventListener('load', async function () {{
+                try {{
+                    // Initialize Clerk
+                    if (window.Clerk) {{
+                        await window.Clerk.load();
+                        
+                        // Add session listener to detect authentication state changes
+                        window.Clerk.addListener('session', (session) => {{
+                            console.log('Clerk session changed:', {{
+                                hasSession: !!session,
+                                sessionId: session?.id,
+                                userId: session?.user?.id,
+                                email: session?.user?.primaryEmailAddress?.emailAddress
+                            }});
+                            
+                            if (session && session.user) {{
+                                console.log('Session established via listener, exchanging token...');
+                                exchangeClerkToken();
+                            }}
+                        }});
+                        
+                        console.log('Clerk loaded. User status:', {{
+                            isSignedIn: !!window.Clerk.user,
+                            userId: window.Clerk.user?.id,
+                            email: window.Clerk.user?.primaryEmailAddress?.emailAddress
+                        }});
+                        
+                        // Check if we're returning from OAuth (look for Clerk session params)
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const hasClerkCallback = urlParams.has('__clerk_status') || urlParams.has('__clerk_redirect_url') || urlParams.has('clerk_oauth_callback');
+                        
+                        console.log('OAuth callback check:', {{
+                            hasClerkCallback,
+                            fullUrl: window.location.href,
+                            search: window.location.search,
+                            urlParams: Object.fromEntries(urlParams.entries()),
+                            allParamKeys: Array.from(urlParams.keys())
+                        }});
+                        
+                        // Handle OAuth callback completion
+                        if (hasClerkCallback && !window.Clerk.user) {{
+                            console.log('Detected OAuth callback, waiting for session to be established...');
+                            // Wait a bit for Clerk to process the callback
+                            setTimeout(async () => {{
+                                await window.Clerk.load();
+                                if (window.Clerk.user) {{
+                                    console.log('User session established after callback, exchanging token...');
+                                    await exchangeClerkToken();
+                                }} else {{
+                                    console.log('User session not established after callback');
+                                }}
+                            }}, 1000);
+                        }} else if (window.Clerk.user) {{
+                            console.log('User found, exchanging Clerk token...');
+                            await exchangeClerkToken();
+                        }} else {{
+                            console.log('No Clerk user found initially, trying alternative session check...');
+                            
+                            // Try alternative approach - wait and check again in case session is being established
+                            setTimeout(async () => {{
+                                console.log('Checking for delayed session establishment...');
+                                await window.Clerk.load();
+                                if (window.Clerk.user) {{
+                                    console.log('Found delayed user session, exchanging token...');
+                                    await exchangeClerkToken();
+                                }} else {{
+                                    console.log('No delayed session found either');
+                                }}
+                            }}, 2000);
+                        }}
+                    }}
+                }} catch (error) {{
+                    console.error('Clerk initialization failed:', error);
+                    // Fallback to test login if Clerk fails
+                    console.log('Falling back to test login system');
+                }}
+            }});
+            
+            async function signInWithSSO(provider) {{
+                try {{
+                    console.log('signInWithSSO called with provider:', provider);
+                    console.log('window.Clerk available:', !!window.Clerk);
+                    console.log('window.Clerk.loaded:', window.Clerk ? window.Clerk.loaded : 'N/A');
+                    
+                    if (window.Clerk && window.Clerk.loaded) {{
+                        console.log('Using real Clerk authentication for', provider);
+                        // Use popup-based OAuth instead of redirect for better reliability
+                        if (provider === 'google') {{
+                            const result = await window.Clerk.client.signIn.authenticateWithRedirect({{
+                                strategy: 'oauth_google',
+                                redirectUrl: window.location.origin + window.location.pathname,
+                                redirectUrlComplete: window.location.origin + window.location.pathname
+                            }});
+                            console.log('Google OAuth result:', result);
+                        }} else if (provider === 'apple') {{
+                            const result = await window.Clerk.client.signIn.authenticateWithRedirect({{
+                                strategy: 'oauth_apple',
+                                redirectUrl: window.location.origin + window.location.pathname,
+                                redirectUrlComplete: window.location.origin + window.location.pathname
+                            }});
+                            console.log('Apple OAuth result:', result);
+                        }}
+                    }} else {{
+                        // Fallback to test login if Clerk not available
+                        console.log('Clerk not available, using test login. Clerk state:', {{
+                            available: !!window.Clerk,
+                            loaded: window.Clerk ? window.Clerk.loaded : 'N/A'
+                        }});
+                        if (provider === 'google') {{
+                            window.location.href = '/test-login?email=jacob@reider.us';
+                        }} else {{
+                            window.location.href = '/test-login?email=test@example.com';
+                        }}
+                    }}
+                }} catch (error) {{
+                    console.error('Authentication failed:', error);
+                    console.error('Error details:', error.message, error.stack);
+                    alert('Authentication failed: ' + error.message + '. Check console for details.');
+                }}
+            }}
+            
+            async function exchangeClerkToken() {{
+                try {{
+                    console.log('Getting Clerk session token...');
+                    
+                    // Get the Clerk session token
+                    const token = await window.Clerk.session.getToken();
+                    console.log('Got Clerk token, length:', token ? token.length : 'null');
+                    
+                    // Exchange it for community access token
+                    console.log('Sending token exchange request to /auth/login...');
+                    const response = await fetch('/auth/login', {{
+                        method: 'POST',
+                        headers: {{
+                            'Authorization': `Bearer ${{token}}`,
+                            'Content-Type': 'application/json'
+                        }},
+                        body: JSON.stringify({{ service: 'community_auth' }})
+                    }});
+                    
+                    console.log('Token exchange response status:', response.status);
+                    
+                    if (response.ok) {{
+                        const data = await response.json();
+                        console.log('Token exchange successful, redirecting with community token...');
+                        
+                        // Redirect to landing page with community token
+                        window.location.href = `/?token=${{data.access_token}}`;
+                    }} else {{
+                        const errorData = await response.text();
+                        console.error('Token exchange failed with status:', response.status);
+                        console.error('Error response:', errorData);
+                        alert('Authentication failed. Please try again.');
+                    }}
+                }} catch (error) {{
+                    console.error('Token exchange failed:', error);
+                    alert('Token exchange failed: ' + error.message);
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
+
+def get_no_access_page_html(user) -> str:
+    """Generate no access page HTML"""
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Mar Vista Community - Access Pending</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                margin: 0;
+                padding: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            .container {{
+                background: white;
+                padding: 2rem;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                text-align: center;
+                max-width: 500px;
+                width: 90%;
+            }}
+            .icon {{ font-size: 4rem; margin-bottom: 1rem; }}
+            h1 {{ color: #333; margin-bottom: 1rem; }}
+            .message {{ color: #666; margin-bottom: 2rem; line-height: 1.6; }}
+            .user-info {{
+                background: #f8f9fa;
+                padding: 1rem;
+                border-radius: 6px;
+                margin: 1rem 0;
+            }}
+            .contact-info {{
+                background: #e3f2fd;
+                padding: 1rem;
+                border-radius: 6px;
+                margin-top: 2rem;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="icon">⏳</div>
+            <h1>Access Pending</h1>
+            <p class="message">
+                Hello <strong>{user.full_name}</strong>! Your account has been created successfully, 
+                but you don't have access to any community applications yet.
+            </p>
+            
+            <div class="user-info">
+                <strong>Your Account:</strong><br>
+                Email: {user.email}<br>
+                Role: {user.role.value.replace('_', ' ').title()}
+            </div>
+            
+            <div class="contact-info">
+                <strong>Need Access?</strong><br>
+                Please contact your community administrator to request access to applications.
+                They can assign you the appropriate roles for ARC submissions, gate access, or other community services.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+def get_app_launcher_html(user, apps: List[Dict]) -> str:
+    """Generate app launcher page HTML"""
+    app_cards = ""
+    for app in apps:
+        permissions_text = ", ".join(app["permissions"])
+        app_cards += f"""
+        <div class="app-card" onclick="window.location.href='{app['url']}'">
+            <div class="app-icon">{app['icon']}</div>
+            <h3>{app['name']}</h3>
+            <p>{app['description']}</p>
+            <div class="permissions">Permissions: {permissions_text}</div>
+        </div>
+        """
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Mar Vista Community - Applications</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                margin: 0;
+                padding: 0;
+                background: #f5f5f5;
+                min-height: 100vh;
+            }}
+            .header {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 2rem;
+                text-align: center;
+            }}
+            .user-info {{
+                background: rgba(255,255,255,0.1);
+                padding: 1rem;
+                border-radius: 6px;
+                margin-top: 1rem;
+                display: inline-block;
+            }}
+            .container {{
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 2rem;
+            }}
+            .apps-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 2rem;
+                margin-top: 2rem;
+            }}
+            .app-card {{
+                background: white;
+                padding: 2rem;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                cursor: pointer;
+                transition: transform 0.2s, box-shadow 0.2s;
+                text-align: center;
+            }}
+            .app-card:hover {{
+                transform: translateY(-4px);
+                box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            }}
+            .app-icon {{
+                font-size: 3rem;
+                margin-bottom: 1rem;
+            }}
+            .app-card h3 {{
+                color: #333;
+                margin-bottom: 0.5rem;
+            }}
+            .app-card p {{
+                color: #666;
+                margin-bottom: 1rem;
+                line-height: 1.4;
+            }}
+            .permissions {{
+                background: #e3f2fd;
+                padding: 0.5rem;
+                border-radius: 4px;
+                font-size: 0.9rem;
+                color: #1976d2;
+                font-weight: 500;
+            }}
+            .logout {{
+                position: absolute;
+                top: 1rem;
+                right: 1rem;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                padding: 0.5rem 1rem;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                text-decoration: none;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <a href="/auth/logout" class="logout">Sign Out</a>
+            <h1>🏡 Mar Vista Community</h1>
+            <p>Welcome back, <strong>{user.full_name}</strong>!</p>
+            
+            <div class="user-info">
+                Role: {user.role.value.replace('_', ' ').title()} | 
+                Access to {len(apps)} application{'s' if len(apps) != 1 else ''}
+            </div>
+        </div>
+        
+        <div class="container">
+            <h2>Your Applications</h2>
+            <p>Click on any application to access it:</p>
+            
+            <div class="apps-grid">
+                {app_cards}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
