@@ -1,17 +1,29 @@
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 from typing import Optional
 import jwt
 import json
+from sqlalchemy.ext.asyncio import AsyncSession
+from utils.database import get_db, init_db
+from repositories.user_repository import UserRepository
+from models.user import UserRole
+from contextlib import asynccontextmanager
 
 load_dotenv()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database on startup
+    await init_db()
+    yield
 
 app = FastAPI(
     title="MVAuth2 Service",
     description="Centralized authentication service for multiple applications, starting with ARC project",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -137,39 +149,88 @@ async def get_apps(authorization: Optional[str] = Header(None), x_user_email: Op
 # This API should only serve JSON endpoints
 
 @app.get("/admin/api/users")
-async def admin_get_users(authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+async def admin_get_users(
+    authorization: Optional[str] = Header(None), 
+    x_user_email: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
     """Get all users - admin only"""
     user_email = x_user_email or "user@example.com"
     
     if user_email != "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # TODO: Implement actual user database integration
-    # This endpoint needs to connect to a real user database (PostgreSQL, MongoDB, etc.)
-    # For now, return empty list to indicate no users are stored yet
-    return {
-        "error": "User database not implemented yet",
-        "message": "This system needs a real database backend to store and manage users",
-        "users": [],
-        "total": 0
-    }
+    try:
+        users = await UserRepository.get_all_users(db)
+        user_dicts = []
+        
+        for user in users:
+            user_dict = user.to_dict()
+            # Convert status from is_active boolean to active/inactive string
+            user_dict["status"] = "active" if user.is_active else "inactive"
+            user_dicts.append(user_dict)
+        
+        return {
+            "users": user_dicts,
+            "total": len(user_dicts)
+        }
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}"}
 
 @app.post("/admin/api/users")
-async def admin_add_user(user_data: dict, authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+async def admin_add_user(
+    user_data: dict, 
+    authorization: Optional[str] = Header(None), 
+    x_user_email: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
     """Add new user - admin only"""
     user_email = x_user_email or "user@example.com"
     
     if user_email != "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # TODO: Implement actual user creation in database
-    return {
-        "error": "User creation not implemented yet",
-        "message": "This system needs a real database backend to create and store users"
-    }
+    try:
+        # Validate required fields
+        if not user_data.get("email"):
+            return {"error": "Email is required"}
+        
+        # Check if user already exists
+        existing_user = await UserRepository.get_user_by_email(db, user_data["email"])
+        if existing_user:
+            return {"error": "User with this email already exists"}
+        
+        # Parse role
+        role_str = user_data.get("role", "USER")
+        try:
+            role = UserRole(role_str)
+        except ValueError:
+            return {"error": f"Invalid role: {role_str}"}
+        
+        # Create user (without Clerk ID for now - this will be added when they first login)
+        user = await UserRepository.create_user(
+            db=db,
+            clerk_user_id="",  # Will be filled when user first logs in
+            email=user_data["email"],
+            full_name=user_data.get("full_name", user_data["email"]),
+            role=role
+        )
+        
+        return {
+            "success": True,
+            "user": user.to_dict()
+        }
+        
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}"}
 
 @app.post("/admin/api/user-roles")
-async def admin_update_user_roles(role_data: dict, authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+async def admin_update_user_roles(
+    role_data: dict, 
+    authorization: Optional[str] = Header(None), 
+    x_user_email: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
     """Update user roles for specific apps - admin only"""
     user_email = x_user_email or "user@example.com"
     
@@ -192,11 +253,25 @@ async def admin_update_user_roles(role_data: dict, authorization: Optional[str] 
     if app not in valid_roles or role not in valid_roles[app]:
         return {"error": f"Invalid role '{role}' for app '{app}'. Valid roles: {valid_roles[app]}"}
     
-    # TODO: Implement actual role update in database
-    return {
-        "error": "Role assignment not implemented yet",
-        "message": "This system needs a real database backend to store and manage user roles"
-    }
+    try:
+        # Find user by email
+        user = await UserRepository.get_user_by_email(db, target_email)
+        if not user:
+            return {"error": f"User with email {target_email} not found"}
+        
+        # Set the app role
+        await UserRepository.set_user_app_role(db, user.id, app, role)
+        
+        return {
+            "success": True,
+            "user": {"email": target_email},
+            "app": app,
+            "role": role,
+            "updated_by": user_email
+        }
+        
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}"}
 
 @app.get("/api/debug")
 async def debug_user(authorization: Optional[str] = Header(None)):
@@ -234,30 +309,83 @@ async def debug_user(authorization: Optional[str] = Header(None)):
     return debug_info
 
 @app.put("/admin/api/users")
-async def admin_update_user(user_data: dict, authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+async def admin_update_user(
+    user_data: dict, 
+    authorization: Optional[str] = Header(None), 
+    x_user_email: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
     """Update existing user - admin only"""
     user_email = x_user_email or "user@example.com"
     
-    if user_email \!= "jacob@reider.us":
+    if user_email != "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # TODO: Implement actual user update in database
-    return {
-        "error": "User update not implemented yet",
-        "message": "This system needs a real database backend to update user records"
-    }
+    try:
+        user_id = user_data.get("id")
+        if not user_id:
+            return {"error": "User ID is required"}
+        
+        # Parse role if provided
+        role = None
+        if user_data.get("role"):
+            try:
+                role = UserRole(user_data["role"])
+            except ValueError:
+                return {"error": f"Invalid role: {user_data['role']}"}
+        
+        # Parse status
+        is_active = None
+        if user_data.get("status"):
+            is_active = user_data["status"] == "active"
+        
+        # Update user
+        updated_user = await UserRepository.update_user(
+            db=db,
+            user_id=int(user_id),
+            email=user_data.get("email"),
+            full_name=user_data.get("full_name"),
+            role=role,
+            is_active=is_active
+        )
+        
+        if not updated_user:
+            return {"error": "User not found"}
+        
+        return {
+            "success": True,
+            "user": updated_user.to_dict()
+        }
+        
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}"}
 
 @app.delete("/admin/api/users/{user_id}")
-async def admin_delete_user(user_id: str, authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+async def admin_delete_user(
+    user_id: str, 
+    authorization: Optional[str] = Header(None), 
+    x_user_email: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
     """Delete user - admin only"""
     user_email = x_user_email or "user@example.com"
     
-    if user_email \!= "jacob@reider.us":
+    if user_email != "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # TODO: Implement actual user deletion from database
-    return {
-        "error": "User deletion not implemented yet",
-        "message": "This system needs a real database backend to delete user records"
-    }
+    try:
+        # Soft delete (set is_active = False)
+        success = await UserRepository.delete_user(db, int(user_id))
+        
+        if not success:
+            return {"error": "User not found"}
+        
+        return {
+            "success": True,
+            "message": f"User {user_id} deleted successfully",
+            "deleted_by": user_email
+        }
+        
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}"}
 

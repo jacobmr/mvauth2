@@ -1,29 +1,34 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from utils.database import Base
 import enum
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class UserRole(str, enum.Enum):
-    # Community-wide roles
-    SUPER_ADMIN = "super_admin"
+    # System-wide roles (used in main role field)
+    USER = "USER"
+    ADMIN = "ADMIN" 
+    SUPER_ADMIN = "SUPER_ADMIN"
+    
+    # Legacy community roles
     HOMEOWNER = "homeowner"
     GUEST = "guest"
+    RESIDENT = "resident"  # Maps to USER
+    STAFF = "staff"        # Maps to USER
+
+class AppRole(str, enum.Enum):
+    # ARC Application roles (stored in app_roles)
+    ARC_OWNER = "owner"
+    ARC_REVIEWER = "reviewer"
+    ARC_ADMIN = "admin"
     
-    # ARC Application roles
-    ARC_ADMIN = "arc_admin"
-    ARC_REVIEWER = "arc_reviewer"
-    
-    # QR Gate Application roles  
-    QR_ADMIN = "qr_admin"
-    QR_SCANNER = "qr_scanner"
-    
-    # Legacy roles (for migration)
-    RESIDENT = "resident"  # Maps to HOMEOWNER
-    ADMIN = "admin"        # Maps to SUPER_ADMIN
-    STAFF = "staff"        # Maps to QR_SCANNER
+    # QR Gate Application roles (stored in app_roles)
+    QR_ADMIN = "admin"
+    QR_SCANNER = "scanner"
+    QR_OWNER = "owner"
+    QR_GUEST = "guest"
 
 class CommunityUser(Base):
     __tablename__ = "community_users"
@@ -40,7 +45,8 @@ class CommunityUser(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
     
-    # Relationships will be added as needed for audit logs, permissions, etc.
+    # Relationships
+    app_roles = relationship("UserAppRole", back_populates="user", cascade="all, delete-orphan")
 
     def get_permissions_for_service(self, service_name: str) -> List[str]:
         """Get user permissions for a specific service"""
@@ -117,4 +123,28 @@ class CommunityUser(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "last_login": self.last_login.isoformat() if self.last_login else None,
+            "app_roles": {role.app_name: role.role for role in self.app_roles}
+        }
+
+class UserAppRole(Base):
+    __tablename__ = "user_app_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("community_users.id"), nullable=False)
+    app_name = Column(String(50), nullable=False)  # "arc", "qr", etc.
+    role = Column(String(50), nullable=False)  # "owner", "reviewer", "admin", etc.
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("CommunityUser", back_populates="app_roles")
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "app_name": self.app_name,
+            "role": self.role,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
