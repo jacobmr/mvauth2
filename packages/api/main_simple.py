@@ -5,23 +5,20 @@ from dotenv import load_dotenv
 from typing import Optional
 import jwt
 import json
-from sqlalchemy.ext.asyncio import AsyncSession
-from utils.database import get_db, init_db
-from repositories.user_repository import UserRepository
-from models.user import UserRole
+from utils.supabase_client import supabase_client
 from contextlib import asynccontextmanager
 
 load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database on startup
+    # Test Supabase connection on startup
     try:
-        await init_db()
-        print("Database initialization completed")
+        print("Testing Supabase connection...")
+        users = await supabase_client.get_users()
+        print(f"Supabase connection successful - found {len(users)} users")
     except Exception as e:
-        print(f"Database initialization failed: {e}")
-        # Continue without database - will show appropriate errors
+        print(f"Supabase connection test failed: {e}")
     yield
 
 app = FastAPI(
@@ -156,8 +153,7 @@ async def get_apps(authorization: Optional[str] = Header(None), x_user_email: Op
 @app.get("/admin/api/users")
 async def admin_get_users(
     authorization: Optional[str] = Header(None), 
-    x_user_email: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db)
+    x_user_email: Optional[str] = Header(None)
 ):
     """Get all users - admin only"""
     user_email = x_user_email or "user@example.com"
@@ -166,28 +162,26 @@ async def admin_get_users(
         return {"error": "Unauthorized"}
     
     try:
-        users = await UserRepository.get_all_users(db)
+        users = await supabase_client.get_users()
         user_dicts = []
         
         for user in users:
-            user_dict = user.to_dict()
-            # Convert status from is_active boolean to active/inactive string
-            user_dict["status"] = "active" if user.is_active else "inactive"
-            user_dicts.append(user_dict)
+            # Convert status from is_active boolean to active/inactive string  
+            user["status"] = "active" if user.get("is_active", True) else "inactive"
+            user_dicts.append(user)
         
         return {
             "users": user_dicts,
             "total": len(user_dicts)
         }
     except Exception as e:
-        return {"error": f"Database error: {str(e)}"}
+        return {"error": f"Supabase API error: {str(e)}"}
 
 @app.post("/admin/api/users")
 async def admin_add_user(
     user_data: dict, 
     authorization: Optional[str] = Header(None), 
-    x_user_email: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db)
+    x_user_email: Optional[str] = Header(None)
 ):
     """Add new user - admin only"""
     user_email = x_user_email or "user@example.com"
@@ -200,34 +194,29 @@ async def admin_add_user(
         if not user_data.get("email"):
             return {"error": "Email is required"}
         
-        # Check if user already exists
-        existing_user = await UserRepository.get_user_by_email(db, user_data["email"])
-        if existing_user:
-            return {"error": "User with this email already exists"}
-        
-        # Parse role
-        role_str = user_data.get("role", "USER")
-        try:
-            role = UserRole(role_str)
-        except ValueError:
-            return {"error": f"Invalid role: {role_str}"}
-        
-        # Create user (without Clerk ID for now - this will be added when they first login)
-        user = await UserRepository.create_user(
-            db=db,
-            clerk_user_id="",  # Will be filled when user first logs in
-            email=user_data["email"],
-            full_name=user_data.get("full_name", user_data["email"]),
-            role=role
-        )
-        
-        return {
-            "success": True,
-            "user": user.to_dict()
+        # Create user data for Supabase
+        new_user = {
+            "clerk_user_id": "",  # Will be filled when user first logs in
+            "email": user_data["email"],
+            "full_name": user_data.get("full_name", user_data["email"]),
+            "role": user_data.get("role", "USER"),
+            "is_active": True,
+            "unit_number": user_data.get("unit_number"),
+            "phone_number": user_data.get("phone_number")
         }
         
+        user = await supabase_client.create_user(new_user)
+        
+        if user:
+            return {
+                "success": True,
+                "user": user
+            }
+        else:
+            return {"error": "Failed to create user"}
+        
     except Exception as e:
-        return {"error": f"Database error: {str(e)}"}
+        return {"error": f"Supabase API error: {str(e)}"}
 
 @app.post("/admin/api/user-roles")
 async def admin_update_user_roles(
@@ -317,8 +306,7 @@ async def debug_user(authorization: Optional[str] = Header(None)):
 async def admin_update_user(
     user_data: dict, 
     authorization: Optional[str] = Header(None), 
-    x_user_email: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db)
+    x_user_email: Optional[str] = Header(None)
 ):
     """Update existing user - admin only"""
     user_email = x_user_email or "user@example.com"
@@ -331,46 +319,40 @@ async def admin_update_user(
         if not user_id:
             return {"error": "User ID is required"}
         
-        # Parse role if provided
-        role = None
+        # Prepare update data
+        update_data = {}
+        if user_data.get("email"):
+            update_data["email"] = user_data["email"]
+        if user_data.get("full_name"):
+            update_data["full_name"] = user_data["full_name"]
         if user_data.get("role"):
-            try:
-                role = UserRole(user_data["role"])
-            except ValueError:
-                return {"error": f"Invalid role: {user_data['role']}"}
-        
-        # Parse status
-        is_active = None
+            update_data["role"] = user_data["role"]
         if user_data.get("status"):
-            is_active = user_data["status"] == "active"
+            update_data["is_active"] = user_data["status"] == "active"
+        if user_data.get("unit_number"):
+            update_data["unit_number"] = user_data["unit_number"]
+        if user_data.get("phone_number"):
+            update_data["phone_number"] = user_data["phone_number"]
         
         # Update user
-        updated_user = await UserRepository.update_user(
-            db=db,
-            user_id=int(user_id),
-            email=user_data.get("email"),
-            full_name=user_data.get("full_name"),
-            role=role,
-            is_active=is_active
-        )
+        updated_user = await supabase_client.update_user(int(user_id), update_data)
         
         if not updated_user:
             return {"error": "User not found"}
         
         return {
             "success": True,
-            "user": updated_user.to_dict()
+            "user": updated_user
         }
         
     except Exception as e:
-        return {"error": f"Database error: {str(e)}"}
+        return {"error": f"Supabase API error: {str(e)}"}
 
 @app.delete("/admin/api/users/{user_id}")
 async def admin_delete_user(
     user_id: str, 
     authorization: Optional[str] = Header(None), 
-    x_user_email: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db)
+    x_user_email: Optional[str] = Header(None)
 ):
     """Delete user - admin only"""
     user_email = x_user_email or "user@example.com"
@@ -380,7 +362,7 @@ async def admin_delete_user(
     
     try:
         # Soft delete (set is_active = False)
-        success = await UserRepository.delete_user(db, int(user_id))
+        success = await supabase_client.delete_user(int(user_id))
         
         if not success:
             return {"error": "User not found"}
@@ -392,5 +374,5 @@ async def admin_delete_user(
         }
         
     except Exception as e:
-        return {"error": f"Database error: {str(e)}"}
+        return {"error": f"Supabase API error: {str(e)}"}
 
