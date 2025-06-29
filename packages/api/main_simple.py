@@ -268,3 +268,41 @@ async def debug_user(authorization: Optional[str] = Header(None)):
             debug_info["decode_error"] = str(e)
     
     return debug_info
+
+@app.put("/admin/api/users")
+async def admin_update_user(user_data: dict, authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+    """Update existing user - admin only"""
+    user_email = x_user_email or "user@example.com"
+    
+    if user_email \!= "jacob@reider.us":
+        return {"error": "Unauthorized"}
+    
+    # Mock user update - in production this would update the user in database
+    return {
+        "success": True,
+        "user": {
+            "id": user_data.get("id"),
+            "email": user_data.get("email"),
+            "role": user_data.get("role"),
+            "status": user_data.get("status"),
+            "updated_by": user_email
+        }
+    }
+
+@app.delete("/admin/api/users/{user_id}")
+async def admin_delete_user(user_id: str, authorization: Optional[str] = Header(None), x_user_email: Optional[str] = Header(None)):
+    """Delete user - admin only"""
+    user_email = x_user_email or "user@example.com"
+    
+    if user_email \!= "jacob@reider.us":
+        return {"error": "Unauthorized"}
+    
+    # Mock user deletion - in production this would delete the user from database
+    print(f"Deleting user {user_id} by {user_email}")
+    
+    return {
+        "success": True,
+        "message": f"User {user_id} deleted successfully",
+        "deleted_by": user_email
+    }
+

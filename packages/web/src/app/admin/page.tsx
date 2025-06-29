@@ -12,6 +12,15 @@ interface User {
   app_roles?: Record<string, string>;
 }
 
+interface EditingUser {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  arcRole: string;
+  qrRole: string;
+}
+
 interface UsersResponse {
   users: User[];
   total: number;
@@ -25,6 +34,11 @@ export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<EditingUser | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
 
   // Check if user is superadmin
   const isAdmin = user?.emailAddresses?.[0]?.emailAddress === 'jacob@reider.us';
@@ -73,54 +87,151 @@ export default function AdminPage() {
     }
   };
 
-  const addUser = async () => {
-    const email = prompt('Enter user email to add:');
-    if (!email) return;
-    
-    const role = prompt('Enter role (USER, ADMIN, SUPER_ADMIN):', 'USER');
-    if (!role) return;
-    
-    try {
-      const response = await makeAuthenticatedRequest(`${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/admin/api/users`, {
-        method: 'POST',
-        body: JSON.stringify({ email, role }),
-      });
-      
-      const data = await response.json();
-      if (data.error) {
-        alert('Error: ' + data.error);
-      } else {
-        alert(`User added successfully: ${data.user.email} (${data.user.role})`);
-        fetchUsers(); // Refresh the list
-      }
-    } catch (err) {
-      alert('Error: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    }
+  const openAddModal = () => {
+    setEditingUser({
+      id: '',
+      email: '',
+      role: 'USER',
+      status: 'active',
+      arcRole: '',
+      qrRole: ''
+    });
+    setShowAddModal(true);
   };
 
-  const manageArcAccess = async () => {
-    const email = prompt('Enter user email to manage ARC access:');
-    if (!email) return;
+  const openEditModal = (user: User) => {
+    setEditingUser({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      arcRole: user.app_roles?.arc || '',
+      qrRole: user.app_roles?.qr || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const openDeleteModal = (user: User) => {
+    setDeletingUser(user);
+    setShowDeleteModal(true);
+  };
+
+  const saveUser = async () => {
+    if (!editingUser) return;
     
-    const role = prompt('Enter ARC role (owner, reviewer, admin):', 'reviewer');
-    if (!role) return;
+    setLoading(true);
+    setError(null);
     
     try {
-      const response = await makeAuthenticatedRequest(`${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/admin/api/user-roles`, {
-        method: 'POST',
-        body: JSON.stringify({ email, app: 'arc', role }),
-      });
+      // Save user basic info
+      const userResponse = await makeAuthenticatedRequest(
+        `${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/admin/api/users`,
+        {
+          method: editingUser.id ? 'PUT' : 'POST',
+          body: JSON.stringify({
+            id: editingUser.id || undefined,
+            email: editingUser.email,
+            role: editingUser.role,
+            status: editingUser.status
+          }),
+        }
+      );
+      
+      const userData = await userResponse.json();
+      if (userData.error) {
+        setError(userData.error);
+        return;
+      }
+      
+      // Save ARC role if specified
+      if (editingUser.arcRole) {
+        const arcResponse = await makeAuthenticatedRequest(
+          `${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/admin/api/user-roles`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              email: editingUser.email,
+              app: 'arc',
+              role: editingUser.arcRole
+            }),
+          }
+        );
+        
+        const arcData = await arcResponse.json();
+        if (arcData.error) {
+          setError(arcData.error);
+          return;
+        }
+      }
+      
+      // Save QR role if specified
+      if (editingUser.qrRole) {
+        const qrResponse = await makeAuthenticatedRequest(
+          `${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/admin/api/user-roles`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              email: editingUser.email,
+              app: 'qr',
+              role: editingUser.qrRole
+            }),
+          }
+        );
+        
+        const qrData = await qrResponse.json();
+        if (qrData.error) {
+          setError(qrData.error);
+          return;
+        }
+      }
+      
+      // Success - close modal and refresh
+      setShowEditModal(false);
+      setShowAddModal(false);
+      setEditingUser(null);
+      fetchUsers();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const deleteUser = async () => {
+    if (!deletingUser) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await makeAuthenticatedRequest(
+        `${process.env.NEXT_PUBLIC_COMMUNITY_AUTH_API}/admin/api/users/${deletingUser.id}`,
+        { method: 'DELETE' }
+      );
       
       const data = await response.json();
       if (data.error) {
-        alert('Error: ' + data.error);
+        setError(data.error);
       } else {
-        alert(`ARC role updated successfully: ${data.user.email} is now ${data.role} in ARC`);
-        fetchUsers(); // Refresh the list
+        setShowDeleteModal(false);
+        setDeletingUser(null);
+        fetchUsers();
       }
     } catch (err) {
-      alert('Error: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
     }
+  };
+  
+  const closeModals = () => {
+    setShowEditModal(false);
+    setShowAddModal(false);
+    setShowDeleteModal(false);
+    setEditingUser(null);
+    setDeletingUser(null);
+    setError(null);
   };
 
   if (!isLoaded) {
@@ -196,16 +307,10 @@ export default function AdminPage() {
                 {loading ? 'Loading...' : 'View All Users'}
               </button>
               <button
-                onClick={addUser}
+                onClick={openAddModal}
                 className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
               >
                 Add New User
-              </button>
-              <button
-                onClick={manageArcAccess}
-                className="bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
-              >
-                Manage ARC Access
               </button>
             </div>
 
@@ -224,6 +329,7 @@ export default function AdminPage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">App Roles</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -250,6 +356,20 @@ export default function AdminPage() {
                           ) : (
                             '-'
                           )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                          <button
+                            onClick={() => openEditModal(user)}
+                            className="text-blue-600 hover:text-blue-900 underline"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => openDeleteModal(user)}
+                            className="text-red-600 hover:text-red-900 underline"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
