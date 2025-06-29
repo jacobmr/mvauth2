@@ -16,7 +16,12 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize database on startup
-    await init_db()
+    try:
+        await init_db()
+        print("Database initialization completed")
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+        # Continue without database - will show appropriate errors
     yield
 
 app = FastAPI(
