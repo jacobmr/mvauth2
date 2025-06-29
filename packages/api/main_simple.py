@@ -144,39 +144,14 @@ async def admin_get_users(authorization: Optional[str] = Header(None), x_user_em
     if user_email != "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # Mock user data with app-specific roles - in production this would query your user database
+    # TODO: Implement actual user database integration
+    # This endpoint needs to connect to a real user database (PostgreSQL, MongoDB, etc.)
+    # For now, return empty list to indicate no users are stored yet
     return {
-        "users": [
-            {
-                "id": "1", 
-                "email": "jacob@reider.us", 
-                "role": "SUPER_ADMIN", 
-                "status": "active",
-                "app_roles": {
-                    "arc": "owner",
-                    "qr": "admin"
-                }
-            },
-            {
-                "id": "2", 
-                "email": "user@example.com", 
-                "role": "USER", 
-                "status": "active",
-                "app_roles": {
-                    "arc": "reviewer"
-                }
-            },
-            {
-                "id": "3", 
-                "email": "demo@brasilito.org", 
-                "role": "USER", 
-                "status": "active",
-                "app_roles": {
-                    "arc": "admin"
-                }
-            },
-        ],
-        "total": 3
+        "error": "User database not implemented yet",
+        "message": "This system needs a real database backend to store and manage users",
+        "users": [],
+        "total": 0
     }
 
 @app.post("/admin/api/users")
@@ -187,16 +162,10 @@ async def admin_add_user(user_data: dict, authorization: Optional[str] = Header(
     if user_email != "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # Mock user creation - in production this would create the user
+    # TODO: Implement actual user creation in database
     return {
-        "success": True,
-        "user": {
-            "id": "new_" + str(hash(user_data.get("email", ""))),
-            "email": user_data.get("email"),
-            "role": user_data.get("role", "USER"),
-            "status": "active",
-            "created_by": user_email
-        }
+        "error": "User creation not implemented yet",
+        "message": "This system needs a real database backend to create and store users"
     }
 
 @app.post("/admin/api/user-roles")
@@ -223,15 +192,10 @@ async def admin_update_user_roles(role_data: dict, authorization: Optional[str] 
     if app not in valid_roles or role not in valid_roles[app]:
         return {"error": f"Invalid role '{role}' for app '{app}'. Valid roles: {valid_roles[app]}"}
     
-    # Mock role update - in production this would update your user database
-    print(f"Updating user {target_email} to role {role} in app {app}")
-    
+    # TODO: Implement actual role update in database
     return {
-        "success": True,
-        "user": {"email": target_email},
-        "app": app,
-        "role": role,
-        "updated_by": user_email
+        "error": "Role assignment not implemented yet",
+        "message": "This system needs a real database backend to store and manage user roles"
     }
 
 @app.get("/api/debug")
@@ -277,16 +241,10 @@ async def admin_update_user(user_data: dict, authorization: Optional[str] = Head
     if user_email \!= "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # Mock user update - in production this would update the user in database
+    # TODO: Implement actual user update in database
     return {
-        "success": True,
-        "user": {
-            "id": user_data.get("id"),
-            "email": user_data.get("email"),
-            "role": user_data.get("role"),
-            "status": user_data.get("status"),
-            "updated_by": user_email
-        }
+        "error": "User update not implemented yet",
+        "message": "This system needs a real database backend to update user records"
     }
 
 @app.delete("/admin/api/users/{user_id}")
@@ -297,12 +255,9 @@ async def admin_delete_user(user_id: str, authorization: Optional[str] = Header(
     if user_email \!= "jacob@reider.us":
         return {"error": "Unauthorized"}
     
-    # Mock user deletion - in production this would delete the user from database
-    print(f"Deleting user {user_id} by {user_email}")
-    
+    # TODO: Implement actual user deletion from database
     return {
-        "success": True,
-        "message": f"User {user_id} deleted successfully",
-        "deleted_by": user_email
+        "error": "User deletion not implemented yet",
+        "message": "This system needs a real database backend to delete user records"
     }
 
