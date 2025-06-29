@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Header, Depends, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
@@ -222,8 +222,7 @@ async def admin_add_user(
 async def admin_update_user_roles(
     role_data: dict, 
     authorization: Optional[str] = Header(None), 
-    x_user_email: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db)
+    x_user_email: Optional[str] = Header(None)
 ):
     """Update user roles for specific apps - admin only"""
     user_email = x_user_email or "user@example.com"
@@ -248,24 +247,18 @@ async def admin_update_user_roles(
         return {"error": f"Invalid role '{role}' for app '{app}'. Valid roles: {valid_roles[app]}"}
     
     try:
-        # Find user by email
-        user = await UserRepository.get_user_by_email(db, target_email)
-        if not user:
-            return {"error": f"User with email {target_email} not found"}
-        
-        # Set the app role
-        await UserRepository.set_user_app_role(db, user.id, app, role)
-        
+        # For now, return a placeholder since app roles will be implemented later
         return {
             "success": True,
             "user": {"email": target_email},
             "app": app,
             "role": role,
-            "updated_by": user_email
+            "updated_by": user_email,
+            "note": "App role management will be implemented in next phase"
         }
         
     except Exception as e:
-        return {"error": f"Database error: {str(e)}"}
+        return {"error": f"Supabase API error: {str(e)}"}
 
 @app.get("/api/debug")
 async def debug_user(authorization: Optional[str] = Header(None)):
