@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./community_auth.db")
     
+    # Supabase settings
+    supabase_service_key: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+    
     # Clerk.com settings
     clerk_publishable_key: str = os.getenv("CLERK_PUBLISHABLE_KEY", "")
     clerk_secret_key: str = os.getenv("CLERK_SECRET_KEY", "")

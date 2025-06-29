@@ -24,8 +24,8 @@ class SupabaseClient:
                 self.project_ref = "wwrzyfekbqwnogkpzfll"  # fallback
         
         self.base_url = f"https://{self.project_ref}.supabase.co"
-        # You'll need to add your service role key as an environment variable
-        self.service_key = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3cnp5ZmVrYnF3bm9na3B6ZmxsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTAzODMyNiwiZXhwIjoyMDY2NjE0MzI2fQ.cqRAnyQl3EOJRtcFAEAEFkHLUBT6KDLStnKBVVdOySY")
+        # Get service key from settings
+        self.service_key = settings.supabase_service_key or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3cnp5ZmVrYnF3bm9na3B6ZmxsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTAzODMyNiwiZXhwIjoyMDY2NjE0MzI2fQ.cqRAnyQl3EOJRtcFAEAEFkHLUBT6KDLStnKBVVdOySY"
         
         self.headers = {
             "apikey": self.service_key,
