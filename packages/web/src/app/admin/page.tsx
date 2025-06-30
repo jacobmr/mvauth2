@@ -7,16 +7,22 @@ import { useRouter } from 'next/navigation';
 interface User {
   id: string;
   email: string;
+  full_name?: string;
   role: string;
   status: string;
+  unit_number?: string;
+  phone_number?: string;
   app_roles?: Record<string, string>;
 }
 
 interface EditingUser {
   id: string;
   email: string;
+  full_name: string;
   role: string;
   status: string;
+  unit_number: string;
+  phone_number: string;
   arcRole: string;
   qrRole: string;
 }
@@ -91,8 +97,11 @@ export default function AdminPage() {
     setEditingUser({
       id: '',
       email: '',
+      full_name: '',
       role: 'USER',
       status: 'active',
+      unit_number: '',
+      phone_number: '',
       arcRole: '',
       qrRole: ''
     });
@@ -103,8 +112,11 @@ export default function AdminPage() {
     setEditingUser({
       id: user.id,
       email: user.email,
+      full_name: (user as any).full_name || user.email,
       role: user.role,
       status: user.status,
+      unit_number: (user as any).unit_number || '',
+      phone_number: (user as any).phone_number || '',
       arcRole: user.app_roles?.arc || '',
       qrRole: user.app_roles?.qr || ''
     });
@@ -131,8 +143,11 @@ export default function AdminPage() {
           body: JSON.stringify({
             id: editingUser.id || undefined,
             email: editingUser.email,
+            full_name: editingUser.full_name,
             role: editingUser.role,
-            status: editingUser.status
+            status: editingUser.status,
+            unit_number: editingUser.unit_number,
+            phone_number: editingUser.phone_number
           }),
         }
       );
@@ -405,6 +420,223 @@ export default function AdminPage() {
           </div>
         </div>
       </main>
+
+      {/* Add User Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl border border-white/20 p-8 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-gray-900 mb-6">Add New User</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                <input
+                  type="email"
+                  value={editingUser?.email || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, email: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="user@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                <input
+                  type="text"
+                  value={editingUser?.full_name || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, full_name: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="John Doe"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  value={editingUser?.role || 'USER'}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, role: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="USER">User</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={editingUser?.status || 'active'}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, status: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Unit Number (Optional)</label>
+                <input
+                  type="text"
+                  value={editingUser?.unit_number || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, unit_number: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="123"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number (Optional)</label>
+                <input
+                  type="tel"
+                  value={editingUser?.phone_number || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, phone_number: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+            </div>
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={saveUser}
+                disabled={loading || !editingUser?.email}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                {loading ? 'Adding...' : 'Add User'}
+              </button>
+              <button
+                onClick={closeModals}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl border border-white/20 p-8 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-gray-900 mb-6">Edit User</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                <input
+                  type="email"
+                  value={editingUser?.email || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, email: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                <input
+                  type="text"
+                  value={editingUser?.full_name || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, full_name: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  value={editingUser?.role || 'USER'}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, role: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="USER">User</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={editingUser?.status || 'active'}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, status: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Unit Number (Optional)</label>
+                <input
+                  type="text"
+                  value={editingUser?.unit_number || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, unit_number: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number (Optional)</label>
+                <input
+                  type="tel"
+                  value={editingUser?.phone_number || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {...prev, phone_number: e.target.value} : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={saveUser}
+                disabled={loading || !editingUser?.email}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button
+                onClick={closeModals}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && deletingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl border border-white/20 p-8 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">Delete User</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete <strong>{deletingUser.email}</strong>? 
+              This action cannot be undone.
+            </p>
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+            <div className="flex space-x-3">
+              <button
+                onClick={deleteUser}
+                disabled={loading}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                {loading ? 'Deleting...' : 'Delete User'}
+              </button>
+              <button
+                onClick={closeModals}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 font-medium py-2 px-4 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
