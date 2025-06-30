@@ -53,6 +53,10 @@ class SupabaseClient:
         """Create a new user"""
         async with httpx.AsyncClient() as client:
             try:
+                # Ensure clerk_user_id is null, not empty string to avoid unique constraint violation
+                if user_data.get("clerk_user_id") == "":
+                    user_data["clerk_user_id"] = None
+                
                 response = await client.post(
                     f"{self.base_url}/rest/v1/community_users",
                     headers=self.headers,
