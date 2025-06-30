@@ -112,11 +112,11 @@ export default function AdminPage() {
     setEditingUser({
       id: user.id,
       email: user.email,
-      full_name: (user as any).full_name || user.email,
+      full_name: user.full_name || user.email,
       role: user.role,
       status: user.status,
-      unit_number: (user as any).unit_number || '',
-      phone_number: (user as any).phone_number || '',
+      unit_number: user.unit_number || '',
+      phone_number: user.phone_number || '',
       arcRole: user.app_roles?.arc || '',
       qrRole: user.app_roles?.qr || ''
     });
