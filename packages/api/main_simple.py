@@ -343,8 +343,8 @@ async def mobile_debug():
 
 @app.post("/mobile/auth/login")
 async def mobile_login(credentials: dict):
-    """Mobile email/password login with Clerk"""
-    from clerk import Clerk
+    """Mobile email/password login using Clerk's REST API"""
+    import httpx
     
     email = credentials.get("email")
     password = credentials.get("password")
@@ -356,9 +356,7 @@ async def mobile_login(credentials: dict):
         }
     
     try:
-        # Initialize Clerk client
         clerk_secret = os.getenv("CLERK_SECRET_KEY")
-        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
         
         if not clerk_secret:
             return {
@@ -366,44 +364,81 @@ async def mobile_login(credentials: dict):
                 "error": "Clerk configuration missing"
             }
         
-        clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
-        
-        # Create sign-in attempt
-        signin_attempt = clerk_client.sign_ins.create_sign_in(
-            identifier=email,
-            password=password
-        )
-        
-        if signin_attempt.status == 'complete':
-            # Get user details
-            user = clerk_client.users.get_user(signin_attempt.created_user_id)
-            
-            # Extract user info
-            primary_email = None
-            if user.email_addresses:
-                for email_addr in user.email_addresses:
-                    if email_addr.id == user.primary_email_address_id:
-                        primary_email = email_addr.email_address
-                        break
-                if not primary_email and user.email_addresses:
-                    primary_email = user.email_addresses[0].email_address
-            
-            return {
-                "success": True,
-                "user": {
-                    "id": user.id,
-                    "email": primary_email,
-                    "fullName": f"{user.first_name or ''} {user.last_name or ''}".strip() or primary_email or user.id,
-                    "role": "homeowner"
+        # Create sign-in attempt using Clerk's REST API
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://api.clerk.com/v1/sign_ins",
+                headers={
+                    "Authorization": f"Bearer {clerk_secret}",
+                    "Content-Type": "application/json"
                 },
-                "token": signin_attempt.created_session_id,
-                "sessionId": signin_attempt.created_session_id
-            }
-        else:
-            return {
-                "success": False,
-                "error": f"Authentication failed: {signin_attempt.status}"
-            }
+                json={
+                    "identifier": email,
+                    "password": password
+                }
+            )
+            
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Clerk API error: {response.status_code} - {response.text}"
+                }
+            
+            signin_data = response.json()
+            
+            if signin_data.get("status") == "complete":
+                # Get user details
+                user_id = signin_data.get("created_user_id")
+                if user_id:
+                    user_response = await client.get(
+                        f"https://api.clerk.com/v1/users/{user_id}",
+                        headers={
+                            "Authorization": f"Bearer {clerk_secret}",
+                            "Content-Type": "application/json"
+                        }
+                    )
+                    
+                    if user_response.status_code == 200:
+                        user_data = user_response.json()
+                        
+                        # Extract primary email
+                        primary_email = None
+                        email_addresses = user_data.get("email_addresses", [])
+                        primary_email_id = user_data.get("primary_email_address_id")
+                        
+                        for email_addr in email_addresses:
+                            if email_addr.get("id") == primary_email_id:
+                                primary_email = email_addr.get("email_address")
+                                break
+                        
+                        if not primary_email and email_addresses:
+                            primary_email = email_addresses[0].get("email_address")
+                        
+                        full_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip()
+                        if not full_name:
+                            full_name = primary_email or user_data.get("id")
+                        
+                        return {
+                            "success": True,
+                            "user": {
+                                "id": user_data.get("id"),
+                                "email": primary_email,
+                                "fullName": full_name,
+                                "role": "homeowner"
+                            },
+                            "token": signin_data.get("created_session_id"),
+                            "sessionId": signin_data.get("created_session_id")
+                        }
+                
+                return {
+                    "success": False,
+                    "error": "Could not retrieve user details"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Authentication failed: {signin_data.get('status')}"
+                }
             
     except Exception as e:
         return {
@@ -413,7 +448,9 @@ async def mobile_login(credentials: dict):
 
 @app.post("/mobile/auth/oauth-init")
 async def mobile_oauth_init(provider_data: dict):
-    """Initialize OAuth flow for mobile"""
+    """Initialize OAuth flow for mobile using Clerk's REST API"""
+    import httpx
+    
     provider = provider_data.get("provider")  # 'oauth_google' or 'oauth_apple'
     
     if not provider:
@@ -423,44 +460,58 @@ async def mobile_oauth_init(provider_data: dict):
         }
     
     try:
-        # Check environment variables first
         clerk_secret = os.getenv("CLERK_SECRET_KEY")
         clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
         
         if not clerk_secret:
             return {
                 "success": False,
-                "error": f"Clerk configuration missing. CLERK_SECRET_KEY: {bool(clerk_secret)}, CLERK_PUBLISHABLE_KEY: {bool(clerk_publishable)}"
+                "error": "Clerk configuration missing"
             }
         
-        # Try importing Clerk
-        try:
-            from clerk import Clerk
-        except ImportError as import_error:
-            return {
-                "success": False,
-                "error": f"Clerk import failed: {str(import_error)}"
-            }
-        
-        # Initialize Clerk client
-        clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
-        
-        # Create OAuth sign-in attempt
-        signin_attempt = clerk_client.sign_ins.create_sign_in(
-            strategy=provider
-        )
-        
-        if signin_attempt.first_factor_verification and signin_attempt.first_factor_verification.external_verification_redirect_url:
-            return {
-                "success": True,
-                "redirectUrl": signin_attempt.first_factor_verification.external_verification_redirect_url,
-                "signInId": signin_attempt.id
-            }
+        # Extract instance ID from publishable key
+        # Format: pk_test_XXX-YYY-Z.clerk.accounts.dev$
+        if clerk_publishable and "." in clerk_publishable:
+            instance_id = clerk_publishable.split(".")[-3]  # Get the part before .clerk.accounts.dev
         else:
             return {
                 "success": False,
-                "error": "Could not initialize OAuth flow - no redirect URL returned"
+                "error": "Invalid Clerk publishable key format"
             }
+        
+        # Create sign-in attempt using Clerk's REST API
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://api.clerk.com/v1/sign_ins",
+                headers={
+                    "Authorization": f"Bearer {clerk_secret}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "strategy": provider
+                }
+            )
+            
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Clerk API error: {response.status_code} - {response.text}"
+                }
+            
+            data = response.json()
+            
+            # Check if we got a redirect URL
+            if data.get("first_factor_verification", {}).get("external_verification_redirect_url"):
+                return {
+                    "success": True,
+                    "redirectUrl": data["first_factor_verification"]["external_verification_redirect_url"],
+                    "signInId": data["id"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "No OAuth redirect URL returned from Clerk"
+                }
             
     except Exception as e:
         return {
@@ -472,8 +523,8 @@ async def mobile_oauth_init(provider_data: dict):
 
 @app.post("/mobile/auth/oauth-complete")
 async def mobile_oauth_complete(completion_data: dict):
-    """Complete OAuth flow and return user tokens"""
-    from clerk import Clerk
+    """Complete OAuth flow and return user tokens using Clerk's REST API"""
+    import httpx
     
     sign_in_id = completion_data.get("signInId")
     
@@ -484,9 +535,7 @@ async def mobile_oauth_complete(completion_data: dict):
         }
     
     try:
-        # Initialize Clerk client
         clerk_secret = os.getenv("CLERK_SECRET_KEY")
-        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
         
         if not clerk_secret:
             return {
@@ -494,41 +543,77 @@ async def mobile_oauth_complete(completion_data: dict):
                 "error": "Clerk configuration missing"
             }
         
-        clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
-        
-        # Get the sign-in attempt
-        signin_attempt = clerk_client.sign_ins.get_sign_in(sign_in_id)
-        
-        if signin_attempt.status == 'complete':
-            # Get user details
-            user = clerk_client.users.get_user(signin_attempt.created_user_id)
+        # Get the sign-in attempt using Clerk's REST API
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.clerk.com/v1/sign_ins/{sign_in_id}",
+                headers={
+                    "Authorization": f"Bearer {clerk_secret}",
+                    "Content-Type": "application/json"
+                }
+            )
             
-            # Extract user info
-            primary_email = None
-            if user.email_addresses:
-                for email_addr in user.email_addresses:
-                    if email_addr.id == user.primary_email_address_id:
-                        primary_email = email_addr.email_address
-                        break
-                if not primary_email and user.email_addresses:
-                    primary_email = user.email_addresses[0].email_address
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Clerk API error: {response.status_code} - {response.text}"
+                }
             
-            return {
-                "success": True,
-                "user": {
-                    "id": user.id,
-                    "email": primary_email,
-                    "fullName": f"{user.first_name or ''} {user.last_name or ''}".strip() or primary_email or user.id,
-                    "role": "homeowner"
-                },
-                "token": signin_attempt.created_session_id,
-                "sessionId": signin_attempt.created_session_id
-            }
-        else:
-            return {
-                "success": False,
-                "error": f"OAuth not complete: {signin_attempt.status}"
-            }
+            signin_data = response.json()
+            
+            if signin_data.get("status") == "complete":
+                # Get user details
+                user_id = signin_data.get("created_user_id")
+                if user_id:
+                    user_response = await client.get(
+                        f"https://api.clerk.com/v1/users/{user_id}",
+                        headers={
+                            "Authorization": f"Bearer {clerk_secret}",
+                            "Content-Type": "application/json"
+                        }
+                    )
+                    
+                    if user_response.status_code == 200:
+                        user_data = user_response.json()
+                        
+                        # Extract primary email
+                        primary_email = None
+                        email_addresses = user_data.get("email_addresses", [])
+                        primary_email_id = user_data.get("primary_email_address_id")
+                        
+                        for email_addr in email_addresses:
+                            if email_addr.get("id") == primary_email_id:
+                                primary_email = email_addr.get("email_address")
+                                break
+                        
+                        if not primary_email and email_addresses:
+                            primary_email = email_addresses[0].get("email_address")
+                        
+                        full_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip()
+                        if not full_name:
+                            full_name = primary_email or user_data.get("id")
+                        
+                        return {
+                            "success": True,
+                            "user": {
+                                "id": user_data.get("id"),
+                                "email": primary_email,
+                                "fullName": full_name,
+                                "role": "homeowner"
+                            },
+                            "token": signin_data.get("created_session_id"),
+                            "sessionId": signin_data.get("created_session_id")
+                        }
+                
+                return {
+                    "success": False,
+                    "error": "Could not retrieve user details"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"OAuth not complete: {signin_data.get('status')}"
+                }
             
     except Exception as e:
         return {
