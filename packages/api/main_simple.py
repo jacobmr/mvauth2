@@ -379,8 +379,6 @@ async def mobile_login(credentials: dict):
 @app.post("/mobile/auth/oauth-init")
 async def mobile_oauth_init(provider_data: dict):
     """Initialize OAuth flow for mobile"""
-    from clerk import Clerk
-    
     provider = provider_data.get("provider")  # 'oauth_google' or 'oauth_apple'
     
     if not provider:
@@ -390,16 +388,26 @@ async def mobile_oauth_init(provider_data: dict):
         }
     
     try:
-        # Initialize Clerk client
+        # Check environment variables first
         clerk_secret = os.getenv("CLERK_SECRET_KEY")
         clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
         
         if not clerk_secret:
             return {
                 "success": False,
-                "error": "Clerk configuration missing"
+                "error": f"Clerk configuration missing. CLERK_SECRET_KEY: {bool(clerk_secret)}, CLERK_PUBLISHABLE_KEY: {bool(clerk_publishable)}"
             }
         
+        # Try importing Clerk
+        try:
+            from clerk import Clerk
+        except ImportError as import_error:
+            return {
+                "success": False,
+                "error": f"Clerk import failed: {str(import_error)}"
+            }
+        
+        # Initialize Clerk client
         clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
         
         # Create OAuth sign-in attempt
