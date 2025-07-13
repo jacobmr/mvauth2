@@ -142,6 +142,130 @@ async def log_access_event(
     
     return {"message": "Access event logged successfully"}
 
+@router.post("/auth/oauth-init")
+async def oauth_init(request: Request, db: AsyncSession = Depends(get_db)):
+    """Initialize OAuth flow for mobile app"""
+    from services.clerk_service import clerk_service
+    
+    try:
+        body = await request.json()
+        provider = body.get('provider')  # 'oauth_google' or 'oauth_apple'
+        
+        # Use Clerk service to create OAuth sign-in
+        oauth_result = await clerk_service.create_oauth_signin(provider)
+        
+        if oauth_result.get('success'):
+            return {
+                "success": True,
+                "redirectUrl": oauth_result.get('redirectUrl'),
+                "signInId": oauth_result.get('signInId')
+            }
+        else:
+            raise HTTPException(status_code=400, detail=oauth_result.get('error', 'OAuth initialization failed'))
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OAuth initialization failed: {str(e)}")
+
+@router.post("/auth/oauth-complete")
+async def oauth_complete(request: Request, db: AsyncSession = Depends(get_db)):
+    """Complete OAuth flow for mobile app"""
+    from services.clerk_service import clerk_service
+    
+    try:
+        body = await request.json()
+        sign_in_id = body.get('signInId')
+        
+        # Use Clerk service to complete OAuth sign-in
+        oauth_result = await clerk_service.complete_oauth_signin(sign_in_id)
+        
+        if oauth_result.get('success'):
+            # Get user info and create our tokens (similar to regular login)
+            user_repo = UserRepository(db)
+            clerk_user = oauth_result.get('user')
+            
+            # Get or create user
+            user = await user_repo.get_by_clerk_id(clerk_user['id'])
+            if not user:
+                from utils.config import settings
+                role = UserRole.SUPER_ADMIN if clerk_user['email'] in settings.admin_emails else UserRole.HOMEOWNER
+                
+                user = await user_repo.create(
+                    clerk_user_id=clerk_user['id'],
+                    email=clerk_user['email'],
+                    full_name=clerk_user.get('fullName', ''),
+                    role=role
+                )
+            
+            # Create tokens
+            user_dict = user.to_dict()
+            access_token = JWTService.create_community_token(user_dict)
+            
+            return {
+                "success": True,
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "fullName": user.full_name,
+                    "role": user.role.value
+                },
+                "token": access_token,
+                "sessionId": oauth_result.get('sessionId')
+            }
+        else:
+            raise HTTPException(status_code=400, detail=oauth_result.get('error', 'OAuth completion failed'))
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OAuth completion failed: {str(e)}")
+
+@router.post("/auth/login")
+async def mobile_login(request: Request, db: AsyncSession = Depends(get_db)):
+    """Email/password login for mobile app"""
+    from services.clerk_service import clerk_service
+    
+    try:
+        body = await request.json()
+        email = body.get('email')
+        password = body.get('password')
+        
+        # Use Clerk service to authenticate
+        login_result = await clerk_service.authenticate_user(email, password)
+        
+        if login_result.get('success'):
+            # Similar to OAuth complete - get/create user and return tokens
+            user_repo = UserRepository(db)
+            clerk_user = login_result.get('user')
+            
+            user = await user_repo.get_by_clerk_id(clerk_user['id'])
+            if not user:
+                from utils.config import settings
+                role = UserRole.SUPER_ADMIN if clerk_user['email'] in settings.admin_emails else UserRole.HOMEOWNER
+                
+                user = await user_repo.create(
+                    clerk_user_id=clerk_user['id'],
+                    email=clerk_user['email'],
+                    full_name=clerk_user.get('fullName', ''),
+                    role=role
+                )
+            
+            user_dict = user.to_dict()
+            access_token = JWTService.create_community_token(user_dict)
+            
+            return {
+                "success": True,
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "fullName": user.full_name,
+                    "role": user.role.value
+                },
+                "token": access_token
+            }
+        else:
+            raise HTTPException(status_code=400, detail=login_result.get('error', 'Login failed'))
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Login failed: {str(e)}")
+
 @router.get("/health")
 async def mobile_health_check():
     """Health check endpoint for mobile app"""

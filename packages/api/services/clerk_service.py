@@ -108,4 +108,115 @@ class ClerkService:
             else:
                 raise HTTPException(status_code=500, detail=f"Failed to fetch user from Clerk: {str(e)}")
 
+    async def create_oauth_signin(self, provider: str) -> Dict:
+        """Initialize OAuth sign-in flow"""
+        try:
+            # Create sign-in attempt with OAuth strategy
+            signin_attempt = self.client.sign_ins.create_sign_in(
+                strategy=provider
+            )
+            
+            if signin_attempt.first_factor_verification and signin_attempt.first_factor_verification.external_verification_redirect_url:
+                return {
+                    'success': True,
+                    'redirectUrl': signin_attempt.first_factor_verification.external_verification_redirect_url,
+                    'signInId': signin_attempt.id
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Could not initialize OAuth flow - no redirect URL returned'
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"OAuth initialization failed: {str(e)}"
+            }
+
+    async def complete_oauth_signin(self, sign_in_id: str) -> Dict:
+        """Complete OAuth sign-in flow"""
+        try:
+            # Get the sign-in attempt
+            signin_attempt = self.client.sign_ins.get_sign_in(sign_in_id)
+            
+            if signin_attempt.status == 'complete':
+                # Get user details
+                user = self.client.users.get_user(signin_attempt.created_user_id)
+                
+                # Extract user information (similar to verify_clerk_token)
+                primary_email = None
+                if user.email_addresses:
+                    for email in user.email_addresses:
+                        if email.id == user.primary_email_address_id:
+                            primary_email = email.email_address
+                            break
+                    if not primary_email and user.email_addresses:
+                        primary_email = user.email_addresses[0].email_address
+                
+                return {
+                    'success': True,
+                    'user': {
+                        'id': user.id,
+                        'email': primary_email,
+                        'fullName': f"{user.first_name or ''} {user.last_name or ''}".strip() or primary_email or user.id
+                    },
+                    'sessionId': signin_attempt.created_session_id
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': f'OAuth not complete, status: {signin_attempt.status}'
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"OAuth completion failed: {str(e)}"
+            }
+
+    async def authenticate_user(self, email: str, password: str) -> Dict:
+        """Authenticate user with email/password"""
+        try:
+            # Create sign-in attempt with email/password
+            signin_attempt = self.client.sign_ins.create_sign_in(
+                identifier=email,
+                password=password
+            )
+            
+            if signin_attempt.status == 'complete':
+                # Get user details
+                user = self.client.users.get_user(signin_attempt.created_user_id)
+                
+                # Extract user information
+                primary_email = None
+                if user.email_addresses:
+                    for email_addr in user.email_addresses:
+                        if email_addr.id == user.primary_email_address_id:
+                            primary_email = email_addr.email_address
+                            break
+                    if not primary_email and user.email_addresses:
+                        primary_email = user.email_addresses[0].email_address
+                
+                return {
+                    'success': True,
+                    'user': {
+                        'id': user.id,
+                        'email': primary_email,
+                        'fullName': f"{user.first_name or ''} {user.last_name or ''}".strip() or primary_email or user.id
+                    },
+                    'sessionId': signin_attempt.created_session_id
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': f'Authentication incomplete, status: {signin_attempt.status}'
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Authentication failed: {str(e)}"
+            }
+
 clerk_service = ClerkService()
