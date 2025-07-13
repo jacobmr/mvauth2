@@ -306,6 +306,25 @@ async def mobile_health():
         "version": "2.0.0"
     }
 
+@app.get("/mobile/debug")
+async def mobile_debug():
+    """Debug endpoint to check configuration"""
+    debug_info = {
+        "clerk_secret_exists": bool(os.getenv("CLERK_SECRET_KEY")),
+        "clerk_publishable_exists": bool(os.getenv("CLERK_PUBLISHABLE_KEY")),
+        "all_env_vars": list(os.environ.keys())
+    }
+    
+    try:
+        from clerk import Clerk
+        debug_info["clerk_import"] = "success"
+    except ImportError as e:
+        debug_info["clerk_import"] = f"failed: {str(e)}"
+    except Exception as e:
+        debug_info["clerk_import"] = f"error: {str(e)}"
+    
+    return debug_info
+
 @app.post("/mobile/auth/login")
 async def mobile_login(credentials: dict):
     """Mobile email/password login with Clerk"""
