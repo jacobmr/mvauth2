@@ -295,6 +295,54 @@ async def debug_user(authorization: Optional[str] = Header(None)):
     
     return debug_info
 
+# Mobile app endpoints for QR Guardian
+@app.get("/mobile/health")
+async def mobile_health():
+    """Mobile app health check"""
+    return {
+        "status": "healthy",
+        "service": "qr_guardian_mobile_api", 
+        "timestamp": str(os.getenv("TIMESTAMP", "not_set")),
+        "version": "2.0.0"
+    }
+
+@app.post("/mobile/auth/login")
+async def mobile_login(credentials: dict):
+    """Simple mobile login - placeholder for now"""
+    email = credentials.get("email")
+    password = credentials.get("password")
+    
+    # For now, return mock data to test connectivity
+    # TODO: Integrate with Clerk authentication
+    if email and password:
+        return {
+            "success": True,
+            "user": {
+                "id": f"user_{email.replace('@', '_').replace('.', '_')}",
+                "email": email,
+                "fullName": "Test User",
+                "role": "homeowner"
+            },
+            "token": "mock_token_123",
+            "message": "Mock login successful - Clerk integration pending"
+        }
+    else:
+        return {
+            "success": False,
+            "error": "Email and password required"
+        }
+
+@app.post("/mobile/auth/oauth-init")
+async def mobile_oauth_init(provider_data: dict):
+    """Initialize OAuth for mobile - placeholder"""
+    provider = provider_data.get("provider")
+    
+    # For now, return error indicating OAuth needs configuration
+    return {
+        "success": False,
+        "error": f"OAuth with {provider} not yet configured - Clerk OAuth setup needed"
+    }
+
 @app.put("/admin/api/users")
 async def admin_update_user(
     user_data: dict, 

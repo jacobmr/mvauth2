@@ -6,3 +6,4 @@ PyJWT
 sqlalchemy
 asyncpg
 pydantic-settings
+clerk
