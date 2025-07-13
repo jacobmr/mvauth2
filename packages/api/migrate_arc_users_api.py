@@ -131,20 +131,11 @@ async def migrate_users():
             skipped_count = 0
             error_count = 0
             
-            # Test with just one user first for debugging
-            test_user = None
-            for arc_user in arc_users:
-                if arc_user["email"] != "jacob@reider.us":
-                    test_user = arc_user
-                    break
-            
-            if test_user:
-                arc_users = [test_user]  # Only process one user for debugging
+            # Process all users
             
             for arc_user in arc_users:
                 email = arc_user["email"]
                 print(f"\n👤 Processing user: {email}")
-                print(f"   ARC user data: {dict(arc_user)}")
                 
                 # Skip jacob@reider.us since we know it exists
                 if email == "jacob@reider.us":

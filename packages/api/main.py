@@ -5,7 +5,7 @@ import uvicorn
 import os
 from dotenv import load_dotenv
 
-from routes import auth, users, validation, community, roles, landing
+from routes import auth, users, validation, community, roles, landing, mobile
 from utils.database import init_db
 from utils.config import settings
 
@@ -33,6 +33,7 @@ app.include_router(validation.router, prefix="/validate", tags=["validation"])
 app.include_router(community.router, prefix="/community", tags=["community"])
 app.include_router(roles.router, prefix="/roles", tags=["role-management"])
 app.include_router(landing.router, prefix="/api", tags=["applications"])  # API endpoints for applications
+app.include_router(mobile.router, prefix="/mobile", tags=["mobile-app"])  # QR Guardian mobile app endpoints
 
 @app.on_event("startup")
 async def startup_event():

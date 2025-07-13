@@ -62,6 +62,20 @@ async def get_current_user_profile(current_user = Depends(get_current_user)):
     """Get current user profile"""
     return UserResponse(**current_user.to_dict())
 
+@router.get("/by-clerk-id/{clerk_user_id}", response_model=UserResponse)
+async def get_user_by_clerk_id(
+    clerk_user_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get user by Clerk ID (for mobile app authentication)"""
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_clerk_id(clerk_user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return UserResponse(**user.to_dict())
+
 @router.put("/me", response_model=UserResponse)
 async def update_current_user_profile(
     update_data: UserUpdateRequest,
