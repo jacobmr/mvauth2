@@ -425,26 +425,7 @@ async def mobile_oauth_init(provider_data: dict):
             "error": f"OAuth initialization failed: {str(e)}"
         }
 
-@app.get("/mobile/auth/oauth-callback")
-async def mobile_oauth_callback(request):
-    """Redirect OAuth callback to Clerk's default domain to avoid $100/month satellite domain cost"""
-    from fastapi.responses import RedirectResponse
-    
-    # Get Clerk subdomain from environment variable
-    clerk_subdomain = os.getenv("CLERK_SUBDOMAIN", "your-clerk-subdomain") 
-    
-    # Get all query parameters from the incoming request
-    query_params = str(request.query_params) if hasattr(request, 'query_params') else ""
-    
-    # Construct Clerk's default OAuth callback URL
-    clerk_callback_url = f"https://{clerk_subdomain}.clerk.accounts.dev/oauth_callback"
-    
-    # Add query parameters if present
-    if query_params:
-        clerk_callback_url += f"?{query_params}"
-    
-    # Redirect to Clerk's real callback URL
-    return RedirectResponse(url=clerk_callback_url, status_code=302)
+# No callback endpoint needed - WebView handles Clerk's OAuth flow directly
 
 @app.post("/mobile/auth/oauth-complete")
 async def mobile_oauth_complete(completion_data: dict):
