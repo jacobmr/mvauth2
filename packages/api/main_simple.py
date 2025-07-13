@@ -316,8 +316,24 @@ async def mobile_debug():
     }
     
     try:
-        from clerk import Clerk
-        debug_info["clerk_import"] = "success"
+        import clerk
+        debug_info["clerk_module"] = "imported"
+        debug_info["clerk_dir"] = dir(clerk)
+        
+        # Try different import patterns
+        try:
+            from clerk import Clerk
+            debug_info["clerk_import"] = "success"
+        except ImportError:
+            try:
+                from clerk.client import Clerk
+                debug_info["clerk_import"] = "success via client"
+            except ImportError:
+                try:
+                    Clerk = clerk.Clerk
+                    debug_info["clerk_import"] = "success via attribute"
+                except AttributeError:
+                    debug_info["clerk_import"] = "no Clerk class found"
     except ImportError as e:
         debug_info["clerk_import"] = f"failed: {str(e)}"
     except Exception as e:
