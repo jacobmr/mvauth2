@@ -426,34 +426,25 @@ async def mobile_oauth_init(provider_data: dict):
         }
 
 @app.get("/mobile/auth/oauth-callback")
-@app.post("/mobile/auth/oauth-callback")
 async def mobile_oauth_callback(request):
-    """Handle OAuth callback from Clerk"""
-    # This endpoint receives the OAuth callback from Clerk
-    # and can redirect back to the mobile app or return success data
+    """Redirect OAuth callback to Clerk's default domain to avoid $100/month satellite domain cost"""
+    from fastapi.responses import RedirectResponse
     
-    # For mobile apps, we typically want to redirect back to a custom URL scheme
-    # or return JSON data that the WebView can detect
+    # Get Clerk subdomain from environment variable
+    clerk_subdomain = os.getenv("CLERK_SUBDOMAIN", "your-clerk-subdomain") 
     
-    query_params = dict(request.query_params) if hasattr(request, 'query_params') else {}
+    # Get all query parameters from the incoming request
+    query_params = str(request.query_params) if hasattr(request, 'query_params') else ""
     
-    # Check if OAuth was successful
-    if query_params.get('oauth_success') or 'session' in query_params:
-        # Return success page that mobile app can detect
-        return {
-            "success": True,
-            "message": "OAuth authentication successful",
-            "redirect": "qrguardian://oauth-success",
-            "params": query_params
-        }
-    else:
-        # Return error page
-        return {
-            "success": False,
-            "message": "OAuth authentication failed",
-            "redirect": "qrguardian://oauth-error",
-            "params": query_params
-        }
+    # Construct Clerk's default OAuth callback URL
+    clerk_callback_url = f"https://{clerk_subdomain}.clerk.accounts.dev/oauth_callback"
+    
+    # Add query parameters if present
+    if query_params:
+        clerk_callback_url += f"?{query_params}"
+    
+    # Redirect to Clerk's real callback URL
+    return RedirectResponse(url=clerk_callback_url, status_code=302)
 
 @app.post("/mobile/auth/oauth-complete")
 async def mobile_oauth_complete(completion_data: dict):
