@@ -308,40 +308,218 @@ async def mobile_health():
 
 @app.post("/mobile/auth/login")
 async def mobile_login(credentials: dict):
-    """Simple mobile login - placeholder for now"""
+    """Mobile email/password login with Clerk"""
+    from clerk import Clerk
+    
     email = credentials.get("email")
     password = credentials.get("password")
     
-    # For now, return mock data to test connectivity
-    # TODO: Integrate with Clerk authentication
-    if email and password:
-        return {
-            "success": True,
-            "user": {
-                "id": f"user_{email.replace('@', '_').replace('.', '_')}",
-                "email": email,
-                "fullName": "Test User",
-                "role": "homeowner"
-            },
-            "token": "mock_token_123",
-            "message": "Mock login successful - Clerk integration pending"
-        }
-    else:
+    if not email or not password:
         return {
             "success": False,
             "error": "Email and password required"
         }
+    
+    try:
+        # Initialize Clerk client
+        clerk_secret = os.getenv("CLERK_SECRET_KEY")
+        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
+        
+        if not clerk_secret:
+            return {
+                "success": False,
+                "error": "Clerk configuration missing"
+            }
+        
+        clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
+        
+        # Create sign-in attempt
+        signin_attempt = clerk_client.sign_ins.create_sign_in(
+            identifier=email,
+            password=password
+        )
+        
+        if signin_attempt.status == 'complete':
+            # Get user details
+            user = clerk_client.users.get_user(signin_attempt.created_user_id)
+            
+            # Extract user info
+            primary_email = None
+            if user.email_addresses:
+                for email_addr in user.email_addresses:
+                    if email_addr.id == user.primary_email_address_id:
+                        primary_email = email_addr.email_address
+                        break
+                if not primary_email and user.email_addresses:
+                    primary_email = user.email_addresses[0].email_address
+            
+            return {
+                "success": True,
+                "user": {
+                    "id": user.id,
+                    "email": primary_email,
+                    "fullName": f"{user.first_name or ''} {user.last_name or ''}".strip() or primary_email or user.id,
+                    "role": "homeowner"
+                },
+                "token": signin_attempt.created_session_id,
+                "sessionId": signin_attempt.created_session_id
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Authentication failed: {signin_attempt.status}"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Login failed: {str(e)}"
+        }
 
 @app.post("/mobile/auth/oauth-init")
 async def mobile_oauth_init(provider_data: dict):
-    """Initialize OAuth for mobile - placeholder"""
-    provider = provider_data.get("provider")
+    """Initialize OAuth flow for mobile"""
+    from clerk import Clerk
     
-    # For now, return error indicating OAuth needs configuration
-    return {
-        "success": False,
-        "error": f"OAuth with {provider} not yet configured - Clerk OAuth setup needed"
-    }
+    provider = provider_data.get("provider")  # 'oauth_google' or 'oauth_apple'
+    
+    if not provider:
+        return {
+            "success": False,
+            "error": "Provider required"
+        }
+    
+    try:
+        # Initialize Clerk client
+        clerk_secret = os.getenv("CLERK_SECRET_KEY")
+        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
+        
+        if not clerk_secret:
+            return {
+                "success": False,
+                "error": "Clerk configuration missing"
+            }
+        
+        clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
+        
+        # Create OAuth sign-in attempt
+        signin_attempt = clerk_client.sign_ins.create_sign_in(
+            strategy=provider
+        )
+        
+        if signin_attempt.first_factor_verification and signin_attempt.first_factor_verification.external_verification_redirect_url:
+            return {
+                "success": True,
+                "redirectUrl": signin_attempt.first_factor_verification.external_verification_redirect_url,
+                "signInId": signin_attempt.id
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Could not initialize OAuth flow - no redirect URL returned"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"OAuth initialization failed: {str(e)}"
+        }
+
+@app.get("/mobile/auth/oauth-callback")
+@app.post("/mobile/auth/oauth-callback")
+async def mobile_oauth_callback(request):
+    """Handle OAuth callback from Clerk"""
+    # This endpoint receives the OAuth callback from Clerk
+    # and can redirect back to the mobile app or return success data
+    
+    # For mobile apps, we typically want to redirect back to a custom URL scheme
+    # or return JSON data that the WebView can detect
+    
+    query_params = dict(request.query_params) if hasattr(request, 'query_params') else {}
+    
+    # Check if OAuth was successful
+    if query_params.get('oauth_success') or 'session' in query_params:
+        # Return success page that mobile app can detect
+        return {
+            "success": True,
+            "message": "OAuth authentication successful",
+            "redirect": "qrguardian://oauth-success",
+            "params": query_params
+        }
+    else:
+        # Return error page
+        return {
+            "success": False,
+            "message": "OAuth authentication failed",
+            "redirect": "qrguardian://oauth-error",
+            "params": query_params
+        }
+
+@app.post("/mobile/auth/oauth-complete")
+async def mobile_oauth_complete(completion_data: dict):
+    """Complete OAuth flow and return user tokens"""
+    from clerk import Clerk
+    
+    sign_in_id = completion_data.get("signInId")
+    
+    if not sign_in_id:
+        return {
+            "success": False,
+            "error": "Sign-in ID required"
+        }
+    
+    try:
+        # Initialize Clerk client
+        clerk_secret = os.getenv("CLERK_SECRET_KEY")
+        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
+        
+        if not clerk_secret:
+            return {
+                "success": False,
+                "error": "Clerk configuration missing"
+            }
+        
+        clerk_client = Clerk(api_key=clerk_secret, publishable_key=clerk_publishable)
+        
+        # Get the sign-in attempt
+        signin_attempt = clerk_client.sign_ins.get_sign_in(sign_in_id)
+        
+        if signin_attempt.status == 'complete':
+            # Get user details
+            user = clerk_client.users.get_user(signin_attempt.created_user_id)
+            
+            # Extract user info
+            primary_email = None
+            if user.email_addresses:
+                for email_addr in user.email_addresses:
+                    if email_addr.id == user.primary_email_address_id:
+                        primary_email = email_addr.email_address
+                        break
+                if not primary_email and user.email_addresses:
+                    primary_email = user.email_addresses[0].email_address
+            
+            return {
+                "success": True,
+                "user": {
+                    "id": user.id,
+                    "email": primary_email,
+                    "fullName": f"{user.first_name or ''} {user.last_name or ''}".strip() or primary_email or user.id,
+                    "role": "homeowner"
+                },
+                "token": signin_attempt.created_session_id,
+                "sessionId": signin_attempt.created_session_id
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"OAuth not complete: {signin_attempt.status}"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"OAuth completion failed: {str(e)}"
+        }
 
 @app.put("/admin/api/users")
 async def admin_update_user(
