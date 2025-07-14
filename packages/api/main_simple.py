@@ -474,26 +474,51 @@ async def mobile_oauth_init(provider_data: dict):
                     "Authorization": f"Bearer {clerk_publishable}",
                     "Content-Type": "application/json"
                 },
-                json={
-                    "strategy": provider,
-                    "redirect_url": "https://auth.brasilito.org/mobile/auth/oauth-callback"
-                }
+                json={}
             )
             
             if response.status_code == 200:
                 data = response.json()
+                sign_in_id = data["response"]["id"]
                 
-                # Debug: return the full response to see what Clerk is sending
-                return {
-                    "success": True,
-                    "debug": data,
-                    "redirectUrl": data.get("first_factor_verification", {}).get("external_verification_redirect_url", "not_found"),
-                    "signInId": data.get("id", "no_id")
-                }
+                # Now initiate OAuth with the created sign-in attempt
+                oauth_response = await client.post(
+                    f"https://{domain}/v1/client/sign_ins/{sign_in_id}/prepare_first_factor",
+                    headers={
+                        "Authorization": f"Bearer {clerk_publishable}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "strategy": provider,
+                        "redirect_url": "https://auth.brasilito.org/mobile/auth/oauth-callback"
+                    }
+                )
+                
+                if oauth_response.status_code == 200:
+                    oauth_data = oauth_response.json()
+                    
+                    # Extract the OAuth redirect URL
+                    if oauth_data.get("first_factor_verification", {}).get("external_verification_redirect_url"):
+                        return {
+                            "success": True,
+                            "redirectUrl": oauth_data["first_factor_verification"]["external_verification_redirect_url"],
+                            "signInId": sign_in_id
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": "No OAuth redirect URL returned",
+                            "debug": oauth_data
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"OAuth preparation failed: {oauth_response.status_code} - {oauth_response.text}"
+                    }
             else:
                 return {
                     "success": False,
-                    "error": f"Clerk Frontend API error: {response.status_code} - {response.text}"
+                    "error": f"Sign-in creation failed: {response.status_code} - {response.text}"
                 }
             
     except Exception as e:
