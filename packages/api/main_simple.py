@@ -433,9 +433,7 @@ async def mobile_login(credentials: dict):
 
 @app.post("/mobile/auth/oauth-init")
 async def mobile_oauth_init(provider_data: dict):
-    """Initialize OAuth flow for mobile using Clerk's REST API"""
-    import httpx
-    
+    """Initialize OAuth flow for mobile using direct Clerk URLs"""
     provider = provider_data.get("provider")  # 'oauth_google' or 'oauth_apple'
     
     if not provider:
@@ -445,48 +443,45 @@ async def mobile_oauth_init(provider_data: dict):
         }
     
     try:
-        clerk_secret = os.getenv("CLERK_SECRET_KEY")
-        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY")
+        clerk_publishable = os.getenv("CLERK_PUBLISHABLE_KEY", "").strip()
         
-        if not clerk_secret:
+        if not clerk_publishable:
             return {
                 "success": False,
                 "error": "Clerk configuration missing"
             }
         
-        # Create sign-in attempt using Clerk's REST API
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://api.clerk.com/v1/sign_ins",
-                headers={
-                    "Authorization": f"Bearer {clerk_secret}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "strategy": provider
-                }
-            )
-            
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Clerk API error: {response.status_code} - {response.text}"
-                }
-            
-            data = response.json()
-            
-            # Check if we got a redirect URL
-            if data.get("first_factor_verification", {}).get("external_verification_redirect_url"):
-                return {
-                    "success": True,
-                    "redirectUrl": data["first_factor_verification"]["external_verification_redirect_url"],
-                    "signInId": data["id"]
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": "No OAuth redirect URL returned from Clerk"
-                }
+        # Extract instance domain from publishable key
+        # pk_test_ZGVjaWRpbmctc2t5bGFyay0yLmNsZXJrLmFjY291bnRzLmRldiQ -> deciding-skylark-2.clerk.accounts.dev
+        import base64
+        try:
+            # Remove pk_test_ prefix and decode base64
+            encoded_domain = clerk_publishable.replace("pk_test_", "").replace("pk_live_", "")
+            decoded_domain = base64.b64decode(encoded_domain + "==").decode('utf-8')
+            # Remove the trailing $ if present
+            domain = decoded_domain.rstrip('$')
+        except:
+            return {
+                "success": False,
+                "error": "Invalid Clerk publishable key format"
+            }
+        
+        # Map provider names
+        provider_map = {
+            "oauth_google": "google",
+            "oauth_apple": "apple"
+        }
+        
+        oauth_provider = provider_map.get(provider, provider.replace("oauth_", ""))
+        
+        # Generate direct Clerk OAuth URL
+        oauth_url = f"https://{domain}/v1/oauth/{oauth_provider}?redirect_url=https://auth.brasilito.org/mobile/auth/oauth-callback"
+        
+        return {
+            "success": True,
+            "redirectUrl": oauth_url,
+            "signInId": "direct_oauth"  # We'll handle completion differently
+        }
             
     except Exception as e:
         return {
