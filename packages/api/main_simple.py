@@ -433,7 +433,9 @@ async def mobile_login(credentials: dict):
 
 @app.post("/mobile/auth/oauth-init")
 async def mobile_oauth_init(provider_data: dict):
-    """Initialize OAuth flow for mobile using direct Clerk URLs"""
+    """Initialize OAuth flow for mobile using Clerk's Frontend API"""
+    import httpx
+    
     provider = provider_data.get("provider")  # 'oauth_google' or 'oauth_apple'
     
     if not provider:
@@ -452,13 +454,10 @@ async def mobile_oauth_init(provider_data: dict):
             }
         
         # Extract instance domain from publishable key
-        # pk_test_ZGVjaWRpbmctc2t5bGFyay0yLmNsZXJrLmFjY291bnRzLmRldiQ -> deciding-skylark-2.clerk.accounts.dev
         import base64
         try:
-            # Remove pk_test_ prefix and decode base64
             encoded_domain = clerk_publishable.replace("pk_test_", "").replace("pk_live_", "")
             decoded_domain = base64.b64decode(encoded_domain + "==").decode('utf-8')
-            # Remove the trailing $ if present
             domain = decoded_domain.rstrip('$')
         except:
             return {
@@ -466,22 +465,41 @@ async def mobile_oauth_init(provider_data: dict):
                 "error": "Invalid Clerk publishable key format"
             }
         
-        # Map provider names
-        provider_map = {
-            "oauth_google": "google",
-            "oauth_apple": "apple"
-        }
-        
-        oauth_provider = provider_map.get(provider, provider.replace("oauth_", ""))
-        
-        # Generate direct Clerk OAuth URL
-        oauth_url = f"https://{domain}/oauth/{oauth_provider}?redirect_url=https://auth.brasilito.org/mobile/auth/oauth-callback"
-        
-        return {
-            "success": True,
-            "redirectUrl": oauth_url,
-            "signInId": "direct_oauth"  # We'll handle completion differently
-        }
+        # Use Clerk's Frontend API to create sign-in attempt
+        async with httpx.AsyncClient() as client:
+            # First create a sign-in attempt
+            response = await client.post(
+                f"https://{domain}/v1/client/sign_ins",
+                headers={
+                    "Authorization": f"Bearer {clerk_publishable}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "strategy": provider,
+                    "redirect_url": "https://auth.brasilito.org/mobile/auth/oauth-callback"
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Extract the OAuth redirect URL
+                if data.get("first_factor_verification", {}).get("external_verification_redirect_url"):
+                    return {
+                        "success": True,
+                        "redirectUrl": data["first_factor_verification"]["external_verification_redirect_url"],
+                        "signInId": data["id"]
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "No OAuth redirect URL returned"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Clerk Frontend API error: {response.status_code} - {response.text}"
+                }
             
     except Exception as e:
         return {
