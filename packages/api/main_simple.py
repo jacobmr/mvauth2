@@ -471,9 +471,8 @@ async def mobile_oauth_init(provider_data: dict):
         
         oauth_provider = provider_map.get(provider, provider.replace("oauth_", ""))
         
-        # Generate Clerk sign-in URL with OAuth redirect
-        # This URL will be opened in WebView and will handle the OAuth flow
-        clerk_signin_url = f"https://{domain}/sign-in?redirect_url=https://auth.brasilito.org/mobile/auth/oauth-callback#/factor-one"
+        # Use the correct Clerk domain that has hosted pages enabled
+        clerk_signin_url = f"https://accounts.brasilito.org/sign-in?redirect_url=https://auth.brasilito.org/mobile/auth/oauth-callback"
         
         return {
             "success": True,
