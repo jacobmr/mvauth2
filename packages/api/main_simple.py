@@ -475,7 +475,7 @@ async def mobile_oauth_init(provider_data: dict):
         oauth_provider = provider_map.get(provider, provider.replace("oauth_", ""))
         
         # Generate direct Clerk OAuth URL
-        oauth_url = f"https://{domain}/v1/oauth/{oauth_provider}?redirect_url=https://auth.brasilito.org/mobile/auth/oauth-callback"
+        oauth_url = f"https://{domain}/oauth/{oauth_provider}?redirect_url=https://auth.brasilito.org/mobile/auth/oauth-callback"
         
         return {
             "success": True,
