@@ -483,18 +483,13 @@ async def mobile_oauth_init(provider_data: dict):
             if response.status_code == 200:
                 data = response.json()
                 
-                # Extract the OAuth redirect URL
-                if data.get("first_factor_verification", {}).get("external_verification_redirect_url"):
-                    return {
-                        "success": True,
-                        "redirectUrl": data["first_factor_verification"]["external_verification_redirect_url"],
-                        "signInId": data["id"]
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": "No OAuth redirect URL returned"
-                    }
+                # Debug: return the full response to see what Clerk is sending
+                return {
+                    "success": True,
+                    "debug": data,
+                    "redirectUrl": data.get("first_factor_verification", {}).get("external_verification_redirect_url", "not_found"),
+                    "signInId": data.get("id", "no_id")
+                }
             else:
                 return {
                     "success": False,
