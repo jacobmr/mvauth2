@@ -454,16 +454,6 @@ async def mobile_oauth_init(provider_data: dict):
                 "error": "Clerk configuration missing"
             }
         
-        # Extract instance ID from publishable key
-        # Format: pk_test_XXX-YYY-Z.clerk.accounts.dev$
-        if clerk_publishable and "." in clerk_publishable:
-            instance_id = clerk_publishable.split(".")[-3]  # Get the part before .clerk.accounts.dev
-        else:
-            return {
-                "success": False,
-                "error": "Invalid Clerk publishable key format"
-            }
-        
         # Create sign-in attempt using Clerk's REST API
         async with httpx.AsyncClient() as client:
             response = await client.post(
