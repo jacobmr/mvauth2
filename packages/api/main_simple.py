@@ -312,28 +312,13 @@ async def mobile_debug():
     debug_info = {
         "clerk_secret_exists": bool(os.getenv("CLERK_SECRET_KEY")),
         "clerk_publishable_exists": bool(os.getenv("CLERK_PUBLISHABLE_KEY")),
+        "clerk_publishable_key": os.getenv("CLERK_PUBLISHABLE_KEY", ""),
         "all_env_vars": list(os.environ.keys())
     }
     
     try:
         import clerk
-        debug_info["clerk_module"] = "imported"
-        debug_info["clerk_dir"] = dir(clerk)
-        
-        # Try different import patterns
-        try:
-            from clerk import Clerk
-            debug_info["clerk_import"] = "success"
-        except ImportError:
-            try:
-                from clerk.client import Clerk
-                debug_info["clerk_import"] = "success via client"
-            except ImportError:
-                try:
-                    Clerk = clerk.Clerk
-                    debug_info["clerk_import"] = "success via attribute"
-                except AttributeError:
-                    debug_info["clerk_import"] = "no Clerk class found"
+        debug_info["clerk_import"] = "success"
     except ImportError as e:
         debug_info["clerk_import"] = f"failed: {str(e)}"
     except Exception as e:
